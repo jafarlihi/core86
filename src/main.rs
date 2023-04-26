@@ -24,7 +24,6 @@ enum RegisterEncoding16 {
 
 impl TryFrom<u8> for RegisterEncoding16 {
     type Error = ();
-
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             x if x == RegisterEncoding16::AX as u8 => Ok(RegisterEncoding16::AX),
@@ -53,7 +52,6 @@ enum RegisterEncoding8 {
 
 impl TryFrom<u8> for RegisterEncoding8 {
     type Error = ();
-
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             x if x == RegisterEncoding8::AL as u8 => Ok(RegisterEncoding8::AL),
@@ -110,6 +108,12 @@ struct CPU {
     flags: Flags,
 }
 
+enum RegisterHalf {
+    FULL,
+    HIGH,
+    LOW,
+}
+
 impl CPU {
     fn new() -> Self {
         CPU {
@@ -130,24 +134,24 @@ impl CPU {
         }
     }
 
-    fn mutate_register(&mut self, register: RegisterEncoding, mutation: fn(&mut u16) -> ()) {
+    fn mutate_register(&mut self, register: RegisterEncoding, mutation: fn(&mut u16, RegisterHalf) -> ()) {
         match register {
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX) => mutation(&mut self.ax),
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BX) => mutation(&mut self.bx),
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX) => mutation(&mut self.cx),
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX) => mutation(&mut self.dx),
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::SI) => mutation(&mut self.si),
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DI) => mutation(&mut self.di),
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BP) => mutation(&mut self.bp),
-            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::SP) => mutation(&mut self.sp),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH) => mutation(&mut self.ax),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL) => mutation(&mut self.bx),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BH) => mutation(&mut self.cx),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BL) => mutation(&mut self.dx),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CH) => mutation(&mut self.si),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL) => mutation(&mut self.di),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DH) => mutation(&mut self.bp),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DL) => mutation(&mut self.sp),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX) => mutation(&mut self.ax, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BX) => mutation(&mut self.bx, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX) => mutation(&mut self.cx, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX) => mutation(&mut self.dx, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::SI) => mutation(&mut self.si, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DI) => mutation(&mut self.di, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BP) => mutation(&mut self.bp, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::SP) => mutation(&mut self.sp, RegisterHalf::FULL),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH) => mutation(&mut self.ax, RegisterHalf::HIGH),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL) => mutation(&mut self.ax, RegisterHalf::LOW),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BH) => mutation(&mut self.bx, RegisterHalf::HIGH),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BL) => mutation(&mut self.bx, RegisterHalf::LOW),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CH) => mutation(&mut self.cx, RegisterHalf::HIGH),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL) => mutation(&mut self.cx, RegisterHalf::LOW),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DH) => mutation(&mut self.dx, RegisterHalf::HIGH),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DL) => mutation(&mut self.dx, RegisterHalf::LOW),
         }
     }
 }
@@ -167,7 +171,6 @@ enum ModRMMod {
 
 impl TryFrom<u8> for ModRMMod {
     type Error = ();
-
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
             x if x == ModRMMod::NoDisplacement as u8 => Ok(ModRMMod::NoDisplacement),
@@ -236,6 +239,7 @@ impl Emulator {
         if self.ram[address.0 as usize] == 0b11110100 {
             return Err("Halted".into());
         }
+        let mut instruction_size = 1;
         match self.ram[address.0 as usize] >> 3 {
             0b01000 => {
                 let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
@@ -245,6 +249,7 @@ impl Emulator {
         }
         match self.ram[address.0 as usize] >> 1 {
             0b1111111 => {
+                instruction_size += 1;
                 let w = self.ram[address.0 as usize] & 0b00000001 != 0;
                 let modrm = Self::parse_modrm(w, &self.ram[address.0 as usize + 1]);
                 match modrm.1 {
@@ -261,7 +266,7 @@ impl Emulator {
             },
             _ => (),
         }
-        self.cpu.ip += 1;
+        self.cpu.ip += instruction_size;
         Ok(())
     }
 
@@ -273,7 +278,25 @@ impl Emulator {
     }
 
     fn inc_register(&mut self, register: RegisterEncoding) {
-        self.cpu.mutate_register(register, |r: &mut u16| *r = *r + 1);
+        self.cpu.mutate_register(register, |r: &mut u16, h: RegisterHalf| {
+            match h {
+                RegisterHalf::FULL => *r = *r + 1,
+                RegisterHalf::HIGH => {
+                    let mut high = *r >> 8;
+                    high += 1;
+                    high = high << 8 & 0b1111111100000000;
+                    let low = *r & 0b0000000011111111;
+                    *r = high | low;
+                },
+                RegisterHalf::LOW => {
+                    let mut low = *r & 0b0000000011111111;
+                    low += 1;
+                    low = low & 0b0000000011111111;
+                    let high = *r & 0b1111111100000000;
+                    *r = high | low;
+                },
+            }
+        });
     }
 }
 
@@ -296,10 +319,14 @@ fn main() {
     // inc cx (with modrm)
     disk[1] = 0b11111111;
     disk[2] = 0b11000001;
+    // inc bl
+    disk[3] = 0b11111110;
+    disk[4] = 0b11000011;
     // hlt
-    disk[3] = 0xF4;
+    disk[5] = 0xF4;
 
     let mut emulator = Emulator::new(disk);
+    emulator.cpu.bx = 0b0000000011111111;
     let run = emulator.run();
 
     match run {
@@ -307,6 +334,7 @@ fn main() {
         Err(_error) => {
             assert_eq!(emulator.cpu.bp, 1);
             assert_eq!(emulator.cpu.cx, 1);
+            assert_eq!(emulator.cpu.bx, 0);
         }
     }
 }
