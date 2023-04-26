@@ -154,6 +154,27 @@ impl CPU {
             RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DL) => mutation(&mut self.dx, RegisterHalf::LOW),
         }
     }
+
+    fn get_register(&self, register: RegisterEncoding) -> u16 {
+         match register {
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX) => self.ax,
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BX) => self.bx,
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX) => self.cx,
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX) => self.dx,
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::SI) => self.si,
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DI) => self.di,
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BP) => self.bp,
+            RegisterEncoding::RegisterEncoding16(RegisterEncoding16::SP) => self.sp,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH) => self.ax >> 8,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL) => self.ax & 0b0000000011111111,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BH) => self.bx >> 8,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BL) => self.bx & 0b0000000011111111,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CH) => self.cx >> 8,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL) => self.cx & 0b0000000011111111,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DH) => self.dx >> 8,
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DL) => self.dx & 0b0000000011111111,
+        }
+    }
 }
 
 struct Emulator {
@@ -258,6 +279,25 @@ impl Emulator {
                             ModRMMod::Register => {
                                 self.inc(modrm.2)
                             },
+                            ModRMMod::OneByteDisplacement => {
+                                instruction_size += 1;
+                                let displacement = self.ram[address.0 as usize + 2] as u16;
+                                let mut offset: u16 = displacement;
+                                offset = offset + match modrm.2 {
+                                    RM::BaseIndex(bi) => {
+                                        bi.0.map_or(
+                                            0,
+                                            |r| self.cpu.get_register(RegisterEncoding::RegisterEncoding16(r))
+                                        ) + bi.1.map_or(
+                                            0,
+                                            |r| self.cpu.get_register(RegisterEncoding::RegisterEncoding16(r))
+                                        )
+                                    }
+                                    _ => panic!("This should never happen"),
+                                };
+                                let address = U20::new(self.cpu.ds, offset);
+                                self.ram[address.0 as usize] += 1;
+                            },
                             _ => (),
                         }
                     },
@@ -322,8 +362,12 @@ fn main() {
     // inc bl
     disk[3] = 0b11111110;
     disk[4] = 0b11000011;
+    // inc byte [bx+si+0x5c]
+    disk[5] = 0b11111110;
+    disk[6] = 0b01000000;
+    disk[7] = 0b01011100;
     // hlt
-    disk[5] = 0xF4;
+    disk[8] = 0xF4;
 
     let mut emulator = Emulator::new(disk);
     emulator.cpu.bx = 0b0000000011111111;
@@ -335,6 +379,10 @@ fn main() {
             assert_eq!(emulator.cpu.bp, 1);
             assert_eq!(emulator.cpu.cx, 1);
             assert_eq!(emulator.cpu.bx, 0);
+
+            let offset = emulator.cpu.bx + emulator.cpu.si + 0x5c;
+            let address = U20::new(emulator.cpu.ds, offset);
+            assert_eq!(emulator.ram[address.0 as usize], 1);
         }
     }
 }
