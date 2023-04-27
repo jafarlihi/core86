@@ -364,8 +364,8 @@ impl Emulator {
         let mut segment_override: Option<SegmentRegister> = None;
         if self.ram[address.0 as usize] >> 5 == 0b00000001 && self.ram[address.0 as usize] & 0b00000111 == 0b00000110 {
             instruction_size += 1;
-            address = U20::new(self.cpu.cs, self.cpu.ip + 1);
             segment_override = Some(((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap());
+            address = U20::new(self.cpu.cs, self.cpu.ip + 1);
         }
         match self.ram[address.0 as usize] >> 3 {
             0b01000 => {
@@ -542,6 +542,35 @@ mod tests {
             Err(_error) => {
                 let offset = emulator.cpu.bx + emulator.cpu.si + 0x5c;
                 let address = U20::new(emulator.cpu.ds, offset);
+                assert_eq!(emulator.ram[address.0 as usize], 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_segment_override_inc_word_one_displacement() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // inc word [es:si+0x5c]
+        disk[0] = 0b00100110;
+        disk[1] = 0b11111111;
+        disk[2] = 0b01000100;
+        disk[3] = 0b01011100;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.es = 0x666;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                let offset = emulator.cpu.si + 0x5c;
+                let address = U20::new(emulator.cpu.es, offset);
                 assert_eq!(emulator.ram[address.0 as usize], 1);
             }
         }
