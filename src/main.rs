@@ -421,40 +421,109 @@ impl U20 {
 }
 
 fn main() {
-    let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+    panic!("Nothing here yet");
+}
 
-    disk[510] = 0x55;
-    disk[511] = 0xAA;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    // inc bp
-    disk[0] = 0b01000101;
-    // inc cx (with modrm)
-    disk[1] = 0b11111111;
-    disk[2] = 0b11000001;
-    // inc bl
-    disk[3] = 0b11111110;
-    disk[4] = 0b11000011;
-    // inc byte [bx+si+0x5c]
-    disk[5] = 0b11111110;
-    disk[6] = 0b01000000;
-    disk[7] = 0b01011100;
-    // hlt
-    disk[8] = 0xF4;
+    #[test]
+    fn test_inc_register() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
 
-    let mut emulator = Emulator::new(disk);
-    emulator.cpu.bx = 0b0000000011111111;
-    let run = emulator.run();
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
 
-    match run {
-        Ok(()) => (),
-        Err(_error) => {
-            assert_eq!(emulator.cpu.bp, 1);
-            assert_eq!(emulator.cpu.cx, 1);
-            assert_eq!(emulator.cpu.bx, 0);
+        // inc bp
+        disk[0] = 0b01000101;
+        // hlt
+        disk[1] = 0xF4;
 
-            let offset = emulator.cpu.bx + emulator.cpu.si + 0x5c;
-            let address = U20::new(emulator.cpu.ds, offset);
-            assert_eq!(emulator.ram[address.0 as usize], 1);
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_inc_register_modrm() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // inc cx (with modrm)
+        disk[0] = 0b11111111;
+        disk[1] = 0b11000001;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.cx, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_inc_register_modrm_lower_half_no_overflow() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // inc bl
+        disk[0] = 0b11111110;
+        disk[1] = 0b11000011;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.bx = 0b0000000011111111;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bx, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_inc_byte_one_displacement() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // inc byte [bx+si+0x5c]
+        disk[0] = 0b11111110;
+        disk[1] = 0b01000000;
+        disk[2] = 0b01011100;
+        // hlt
+        disk[3] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                let offset = emulator.cpu.bx + emulator.cpu.si + 0x5c;
+                let address = U20::new(emulator.cpu.ds, offset);
+                assert_eq!(emulator.ram[address.0 as usize], 1);
+            }
         }
     }
 }
