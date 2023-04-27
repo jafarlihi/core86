@@ -91,6 +91,26 @@ bitflags! {
     }
 }
 
+enum SegmentRegister {
+    ES = 00,
+    CS = 01,
+    SS = 10,
+    DS = 11,
+}
+
+impl TryFrom<u8> for SegmentRegister {
+    type Error = ();
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            x if x == SegmentRegister::ES as u8 => Ok(SegmentRegister::ES),
+            x if x == SegmentRegister::CS as u8 => Ok(SegmentRegister::CS),
+            x if x == SegmentRegister::SS as u8 => Ok(SegmentRegister::SS),
+            x if x == SegmentRegister::DS as u8 => Ok(SegmentRegister::DS),
+            _ => Err(()),
+        }
+    }
+}
+
 struct CPU {
     ax: u16,
     bx: u16,
@@ -259,7 +279,7 @@ impl Emulator {
         (m, opcode, rm)
     }
 
-    fn calculate_address_by_rm(&self, rm: RM, displacement: u16) -> U20 {
+    fn calculate_address_by_rm(&self, rm: RM, displacement: u16, segment_override: Option<SegmentRegister>) -> U20 {
         let mut offset: u16 = displacement;
         let mut use_ss = false;
         offset = offset + match rm {
@@ -279,15 +299,28 @@ impl Emulator {
             }
             _ => panic!("This should never happen"),
         };
-        U20::new(if use_ss { self.cpu.ss } else { self.cpu.ds }, offset)
+        let segment = segment_override.unwrap_or(if use_ss { SegmentRegister::SS } else { SegmentRegister::DS });
+        let segment = match segment {
+            SegmentRegister::ES => self.cpu.es,
+            SegmentRegister::CS => self.cpu.cs,
+            SegmentRegister::DS => self.cpu.ds,
+            SegmentRegister::SS => self.cpu.ss,
+        };
+        U20::new(segment, offset)
     }
 
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let address = U20::new(self.cpu.cs, self.cpu.ip);
+        let mut address = U20::new(self.cpu.cs, self.cpu.ip);
         if self.ram[address.0 as usize] == 0b11110100 {
             return Err("Halted".into());
         }
         let mut instruction_size = 1;
+        let mut segment_override: Option<SegmentRegister> = None;
+        if self.ram[address.0 as usize] >> 5 == 0b00000001 && self.ram[address.0 as usize] & 0b00000111 == 0b00000110 {
+            instruction_size += 1;
+            address = U20::new(self.cpu.cs, self.cpu.ip + 1);
+            segment_override = Some(((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap());
+        }
         match self.ram[address.0 as usize] >> 3 {
             0b01000 => {
                 let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
@@ -304,12 +337,16 @@ impl Emulator {
                     0b00000000 => {
                         match modrm.0 {
                             ModRMMod::Register => {
-                                self.inc(modrm.2)
+                                match modrm.2 {
+                                    RM::Register(e) => self.inc_register(e),
+                                    _ => panic!("This should never happen"),
+                                }
                             },
+                            // TODO: Following address calculations should be refactored out
                             ModRMMod::OneByteDisplacement => {
                                 instruction_size += 1;
                                 let displacement = self.ram[address.0 as usize + 2] as u16;
-                                let address = self.calculate_address_by_rm(modrm.2, displacement);
+                                let address = self.calculate_address_by_rm(modrm.2, displacement, segment_override);
                                 self.ram[address.0 as usize] += 1;
                             },
                             ModRMMod::TwoByteDisplacement => {
@@ -319,11 +356,11 @@ impl Emulator {
                                 ] as u16 | (self.ram[
                                     address.0 as usize + 3]
                                 as u16) << 8;
-                                let address = self.calculate_address_by_rm(modrm.2, displacement);
+                                let address = self.calculate_address_by_rm(modrm.2, displacement, segment_override);
                                 self.ram[address.0 as usize] += 1;
                             },
                             ModRMMod::NoDisplacement => {
-                                let address = self.calculate_address_by_rm(modrm.2, 0);
+                                let address = self.calculate_address_by_rm(modrm.2, 0, segment_override);
                                 self.ram[address.0 as usize] += 1;
                             },
                             ModRMMod::Direct => {
@@ -331,8 +368,8 @@ impl Emulator {
                                 let offset = self.ram[
                                     address.0 as usize + 2
                                 ] as u16 | (self.ram[
-                                    address.0 as usize + 3]
-                                as u16) << 8;
+                                    address.0 as usize + 3
+                                ] as u16) << 8;
                                 let address = U20::new(self.cpu.ds, offset);
                                 self.ram[address.0 as usize] += 1;
                             },
@@ -347,11 +384,9 @@ impl Emulator {
         Ok(())
     }
 
-    fn inc(&mut self, rm: RM) {
-        match rm {
-            RM::Register(register_encoding) => self.inc_register(register_encoding),
-            _ => (),
-        }
+    // TODO: 8 bit vs 16 bit
+    fn inc_address(&mut self, address: U20) {
+        self.ram[address.0 as usize] += 1;
     }
 
     fn inc_register(&mut self, register: RegisterEncoding) {
