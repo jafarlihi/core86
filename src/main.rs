@@ -156,7 +156,7 @@ impl CPU {
     }
 
     fn get_register(&self, register: RegisterEncoding) -> u16 {
-         match register {
+        match register {
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX) => self.ax,
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BX) => self.bx,
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX) => self.cx,
@@ -188,6 +188,7 @@ enum ModRMMod {
     OneByteDisplacement = 0b01,
     TwoByteDisplacement = 0b10,
     Register = 0b11,
+    Direct = 0xCAFEBABE,
 }
 
 impl TryFrom<u8> for ModRMMod {
@@ -228,7 +229,7 @@ impl Emulator {
     }
 
     fn parse_modrm(w: bool, modrm: &u8) -> (ModRMMod, u8, RM) {
-        let m: ModRMMod = (modrm >> 6).try_into().unwrap();
+        let mut m: ModRMMod = (modrm >> 6).try_into().unwrap();
         let opcode = (modrm & 0b00111000) >> 3;
         let rm = match m {
             ModRMMod::Register => {
@@ -252,7 +253,33 @@ impl Emulator {
                 }
             }
         };
+        if modrm & 0b00000111 == 0b00000110 && matches!(m, ModRMMod::NoDisplacement) {
+            m = ModRMMod::Direct;
+        }
         (m, opcode, rm)
+    }
+
+    fn calculate_address_by_rm(&self, rm: RM, displacement: u16) -> U20 {
+        let mut offset: u16 = displacement;
+        let mut use_ss = false;
+        offset = offset + match rm {
+            RM::BaseIndex(bi) => {
+                bi.0.map_or(
+                    0,
+                    |r| {
+                        if matches!(r, RegisterEncoding16::BP) {
+                            use_ss = true;
+                        }
+                        self.cpu.get_register(RegisterEncoding::RegisterEncoding16(r))
+                    }
+                ) + bi.1.map_or(
+                    0,
+                    |r| self.cpu.get_register(RegisterEncoding::RegisterEncoding16(r))
+                )
+            }
+            _ => panic!("This should never happen"),
+        };
+        U20::new(if use_ss { self.cpu.ss } else { self.cpu.ds }, offset)
     }
 
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -282,23 +309,33 @@ impl Emulator {
                             ModRMMod::OneByteDisplacement => {
                                 instruction_size += 1;
                                 let displacement = self.ram[address.0 as usize + 2] as u16;
-                                let mut offset: u16 = displacement;
-                                offset = offset + match modrm.2 {
-                                    RM::BaseIndex(bi) => {
-                                        bi.0.map_or(
-                                            0,
-                                            |r| self.cpu.get_register(RegisterEncoding::RegisterEncoding16(r))
-                                        ) + bi.1.map_or(
-                                            0,
-                                            |r| self.cpu.get_register(RegisterEncoding::RegisterEncoding16(r))
-                                        )
-                                    }
-                                    _ => panic!("This should never happen"),
-                                };
+                                let address = self.calculate_address_by_rm(modrm.2, displacement);
+                                self.ram[address.0 as usize] += 1;
+                            },
+                            ModRMMod::TwoByteDisplacement => {
+                                instruction_size += 2;
+                                let displacement = self.ram[
+                                    address.0 as usize + 2
+                                ] as u16 | (self.ram[
+                                    address.0 as usize + 3]
+                                as u16) << 8;
+                                let address = self.calculate_address_by_rm(modrm.2, displacement);
+                                self.ram[address.0 as usize] += 1;
+                            },
+                            ModRMMod::NoDisplacement => {
+                                let address = self.calculate_address_by_rm(modrm.2, 0);
+                                self.ram[address.0 as usize] += 1;
+                            },
+                            ModRMMod::Direct => {
+                                instruction_size += 2;
+                                let offset = self.ram[
+                                    address.0 as usize + 2
+                                ] as u16 | (self.ram[
+                                    address.0 as usize + 3]
+                                as u16) << 8;
                                 let address = U20::new(self.cpu.ds, offset);
                                 self.ram[address.0 as usize] += 1;
                             },
-                            _ => (),
                         }
                     },
                     _ => (),
