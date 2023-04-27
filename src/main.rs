@@ -269,7 +269,7 @@ impl Emulator {
                     0b00000101 => RM::BaseIndex((None, Some(RegisterEncoding16::DI))),
                     0b00000110 => RM::BaseIndex((Some(RegisterEncoding16::BP), None)),
                     0b00000111 => RM::BaseIndex((Some(RegisterEncoding16::BX), None)),
-                    _ => panic!("This should never happen")
+                    _ => unreachable!(),
                 }
             }
         };
@@ -297,7 +297,7 @@ impl Emulator {
                     |r| self.cpu.get_register(RegisterEncoding::RegisterEncoding16(r))
                 )
             }
-            _ => panic!("This should never happen"),
+            _ => unreachable!(),
         };
         let segment = segment_override.unwrap_or(if use_ss { SegmentRegister::SS } else { SegmentRegister::DS });
         let segment = match segment {
@@ -307,6 +307,52 @@ impl Emulator {
             SegmentRegister::SS => self.cpu.ss,
         };
         U20::new(segment, offset)
+    }
+
+    fn get_instruction_size_extension_by_mod(modrmmod: &ModRMMod) -> u16 {
+        match modrmmod {
+            ModRMMod::Register => 0,
+            ModRMMod::NoDisplacement => 0,
+            ModRMMod::OneByteDisplacement => 1,
+            ModRMMod::TwoByteDisplacement => 2,
+            ModRMMod::Direct => 2,
+        }
+    }
+
+    fn calculate_address_by_modrm(&self, instruction_address: U20, modrmmod: ModRMMod, rm: RM, segment_override: Option<SegmentRegister>) -> U20 {
+        match modrmmod {
+            ModRMMod::OneByteDisplacement => {
+                let displacement = self.ram[instruction_address.0 as usize + 2] as u16;
+                self.calculate_address_by_rm(rm, displacement, segment_override)
+            },
+            ModRMMod::TwoByteDisplacement => {
+                let displacement = self.ram[
+                    instruction_address.0 as usize + 2
+                ] as u16 | (self.ram[
+                    instruction_address.0 as usize + 3]
+                as u16) << 8;
+                self.calculate_address_by_rm(rm, displacement, segment_override)
+            },
+            ModRMMod::NoDisplacement => {
+                self.calculate_address_by_rm(rm, 0, segment_override)
+            },
+            ModRMMod::Direct => {
+                let offset = self.ram[
+                    instruction_address.0 as usize + 2
+                ] as u16 | (self.ram[
+                    instruction_address.0 as usize + 3
+                ] as u16) << 8;
+                let segment = segment_override.unwrap_or(SegmentRegister::DS);
+                let segment = match segment {
+                    SegmentRegister::ES => self.cpu.es,
+                    SegmentRegister::CS => self.cpu.cs,
+                    SegmentRegister::DS => self.cpu.ds,
+                    SegmentRegister::SS => self.cpu.ss,
+                };
+                U20::new(segment, offset)
+            },
+            _ => unreachable!(),
+        }
     }
 
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -333,45 +379,19 @@ impl Emulator {
                 instruction_size += 1;
                 let w = self.ram[address.0 as usize] & 0b00000001 != 0;
                 let modrm = Self::parse_modrm(w, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                 match modrm.1 {
                     0b00000000 => {
                         match modrm.0 {
                             ModRMMod::Register => {
                                 match modrm.2 {
                                     RM::Register(e) => self.inc_register(e),
-                                    _ => panic!("This should never happen"),
+                                    _ => unreachable!(),
                                 }
                             },
-                            // TODO: Following address calculations should be refactored out
-                            ModRMMod::OneByteDisplacement => {
-                                instruction_size += 1;
-                                let displacement = self.ram[address.0 as usize + 2] as u16;
-                                let address = self.calculate_address_by_rm(modrm.2, displacement, segment_override);
-                                self.ram[address.0 as usize] += 1;
-                            },
-                            ModRMMod::TwoByteDisplacement => {
-                                instruction_size += 2;
-                                let displacement = self.ram[
-                                    address.0 as usize + 2
-                                ] as u16 | (self.ram[
-                                    address.0 as usize + 3]
-                                as u16) << 8;
-                                let address = self.calculate_address_by_rm(modrm.2, displacement, segment_override);
-                                self.ram[address.0 as usize] += 1;
-                            },
-                            ModRMMod::NoDisplacement => {
-                                let address = self.calculate_address_by_rm(modrm.2, 0, segment_override);
-                                self.ram[address.0 as usize] += 1;
-                            },
-                            ModRMMod::Direct => {
-                                instruction_size += 2;
-                                let offset = self.ram[
-                                    address.0 as usize + 2
-                                ] as u16 | (self.ram[
-                                    address.0 as usize + 3
-                                ] as u16) << 8;
-                                let address = U20::new(self.cpu.ds, offset);
-                                self.ram[address.0 as usize] += 1;
+                            _ => {
+                                let address = self.calculate_address_by_modrm(address, modrm.0, modrm.2, segment_override);
+                                self.inc_address(address);
                             },
                         }
                     },
