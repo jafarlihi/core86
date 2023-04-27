@@ -575,4 +575,33 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_inc_byte_direct() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // inc byte [0x5af0]
+        disk[0] = 0b11111110;
+        disk[1] = 0b00000110;
+        disk[2] = 0b11110000;
+        disk[3] = 0b01011010;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ds = 0x666;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                let offset = 0x5AF0;
+                let address = U20::new(emulator.cpu.ds, offset);
+                assert_eq!(emulator.ram[address.0 as usize], 1);
+            }
+        }
+    }
 }
