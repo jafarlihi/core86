@@ -78,6 +78,7 @@ fn alloc_box_buffer(len: usize) -> Box<[u8]> {
 }
 
 bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     struct Flags: u16 {
         const CF = 0b0000000000000001;
         const PF = 0b0000000000000100;
@@ -125,7 +126,7 @@ struct CPU {
     ds: u16,
     es: u16,
     ss: u16,
-    flags: Flags,
+    flags: u16,
 }
 
 enum RegisterHalf {
@@ -150,11 +151,11 @@ impl CPU {
             ds: 0,
             es: 0,
             ss: 0,
-            flags: Flags::empty(),
+            flags: 0,
         }
     }
 
-    fn mutate_register<F: Fn(&mut u16, RegisterHalf) -> ()>(&mut self, register: RegisterEncoding, mutation: F) {
+    fn mutate_register<F: Fn(&mut u16, RegisterHalf) -> ()>(&mut self, register: &RegisterEncoding, mutation: F) {
         match register {
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX) => mutation(&mut self.ax, RegisterHalf::FULL),
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BX) => mutation(&mut self.bx, RegisterHalf::FULL),
@@ -435,13 +436,17 @@ impl Emulator {
             // INC, register-mode
             0b01000 => {
                 let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
-                self.inc_register(register)
+                let before = self.cpu.get_register(&register);
+                self.inc_register(&register);
+                let after = self.cpu.get_register(&register);
+                self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
             },
             _ => (),
         }
         match self.ram[address.0 as usize] >> 2 {
             // ADD
             0b00000000 => {
+                // TODO: Update flags
                 let direction: TwoOperandDirection = ((self.ram[address.0 as usize] & 0b00000010) >> 1).try_into().unwrap();
                 let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
@@ -482,7 +487,7 @@ impl Emulator {
                 };
                 match direction {
                     TwoOperandDirection::Register => {
-                        self.cpu.mutate_register(register, |r: &mut u16, h: RegisterHalf| {
+                        self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
                             match sum {
                                 Value::Byte(b) => {
                                     match h {
@@ -499,7 +504,7 @@ impl Emulator {
                     TwoOperandDirection::ModRM => {
                         match operand {
                             Operand::Register(r) => {
-                                self.cpu.mutate_register(r, |r: &mut u16, h: RegisterHalf| {
+                                self.cpu.mutate_register(&r, |r: &mut u16, h: RegisterHalf| {
                                    match sum {
                                        Value::Byte(b) => {
                                             match h {
@@ -536,29 +541,145 @@ impl Emulator {
                 let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
                 instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
-                match modrm.1 {
+                let (before, after) = match modrm.1 {
                     0b00000000 => {
                         match modrm.0 {
                             ModRMMod::Register => {
                                 match modrm.2 {
-                                    RM::Register(e) => self.inc_register(e),
+                                    RM::Register(e) => {
+                                        let before = self.cpu.get_register(&e);
+                                        self.inc_register(&e);
+                                        let after = self.cpu.get_register(&e);
+                                        (before, after)
+                                    }
                                     _ => unreachable!(),
                                 }
                             },
                             _ => {
                                 let address = self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override);
-                                let value = self.read_word(&address) + 1;
-                                self.write_word(&address, value);
+                                let before = self.read_word(&address);
+                                self.write_word(&address, before + 1);
+                                let after = self.read_word(&address);
+                                (Value::Word(before), Value::Word(after))
                             },
                         }
                     },
-                    _ => (),
-                }
+                    _ => unreachable!(),
+                };
+                self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
             },
             _ => (),
         }
         self.cpu.ip += instruction_size;
         Ok(())
+    }
+
+    fn update_flags(&mut self, flags: &str, before: Option<Value>, after: Option<Value>, increasing: Option<bool>) {
+        if flags.contains("C") {
+            self.update_carry_flag(before.as_ref().unwrap(), after.as_ref().unwrap());
+        }
+        if flags.contains("Z") {
+            self.update_zero_flag(after.as_ref().unwrap());
+        }
+        if flags.contains("S") {
+            self.update_sign_flag(after.as_ref().unwrap());
+        }
+        if flags.contains("O") {
+            self.update_overflow_flag(before.as_ref().unwrap(), after.as_ref().unwrap(), increasing.as_ref().unwrap())
+        }
+        if flags.contains("P") {
+            self.update_parity_flag(after.as_ref().unwrap());
+        }
+        if flags.contains("A") {
+            self.update_aux_carry_flag(before.as_ref().unwrap(), after.as_ref().unwrap());
+        }
+    }
+
+    fn update_carry_flag(&mut self, before: &Value, after: &Value) {
+        let msb_before = match before {
+            Value::Byte(b) => b >> 7,
+            Value::Word(w) => (w >> 15) as u8,
+        };
+        let msb_after = match after {
+            Value::Byte(b) => b >> 7,
+            Value::Word(w) => (w >> 15) as u8,
+        };
+        if msb_before != msb_after {
+            self.cpu.flags |= Flags::CF.bits();
+        } else {
+            self.cpu.flags |= !Flags::CF.bits();
+        }
+    }
+
+    fn update_parity_flag(&mut self, after: &Value) {
+        let lsb = match after {
+            Value::Byte(b) => *b,
+            Value::Word(w) => *w as u8,
+        };
+        let parity = lsb.count_ones() % 2 == 0;
+        if parity  {
+            self.cpu.flags |= Flags::PF.bits();
+        } else {
+            self.cpu.flags |= !Flags::PF.bits();
+        }
+    }
+
+    fn update_aux_carry_flag(&mut self, before: &Value, after: &Value) {
+        let third_bit_before = match before {
+            Value::Byte(b) => (b >> 3) & 0b00000001,
+            Value::Word(w) => ((w >> 3) as u8) & 0b00000001,
+        };
+        let third_bit_after = match after {
+            Value::Byte(b) => (b >> 3) & 0b00000001,
+            Value::Word(w) => ((w >> 3) as u8) & 0b00000001,
+        };
+        if third_bit_before != third_bit_after {
+            self.cpu.flags |= Flags::AF.bits();
+        } else {
+            self.cpu.flags |= !Flags::AF.bits();
+        }
+    }
+
+    fn update_zero_flag(&mut self, after: &Value) {
+        let is_zero = match after {
+            Value::Byte(b) => *b == 0,
+            Value::Word(w) => *w == 0,
+        };
+        if is_zero {
+            self.cpu.flags |= Flags::ZF.bits();
+        } else {
+            self.cpu.flags |= !Flags::ZF.bits();
+        }
+    }
+
+    fn update_sign_flag(&mut self, after: &Value) {
+        let sign = match after {
+            Value::Byte(b) => (b >> 7) == 1,
+            Value::Word(w) => ((w >> 15) as u8) == 1,
+        };
+        if sign {
+            self.cpu.flags |= Flags::SF.bits();
+        } else {
+            self.cpu.flags |= !Flags::SF.bits();
+        }
+    }
+
+    fn update_overflow_flag(&mut self, before: &Value, after: &Value, increasing: &bool) {
+        let value_before = match before {
+            Value::Byte(b) => *b as u16,
+            Value::Word(w) => *w,
+        };
+        let value_after = match after {
+            Value::Byte(b) => *b as u16,
+            Value::Word(w) => *w,
+        };
+        // TODO: What if overflows and becomes the same value?
+        let overflow = (*increasing && value_before > value_after) || (!*increasing && value_before < value_after);
+        if overflow {
+            self.cpu.flags |= Flags::OF.bits();
+        } else {
+            self.cpu.flags |= !Flags::OF.bits();
+        }
     }
 
     fn read_word(&self, m: &U20) -> u16 {
@@ -570,8 +691,8 @@ impl Emulator {
         self.ram[(m.0 + 1) as usize] = (w >> 8) as u8
     }
 
-    fn inc_register(&mut self, register: RegisterEncoding) {
-        self.cpu.mutate_register(register, |r: &mut u16, h: RegisterHalf| {
+    fn inc_register(&mut self, register: &RegisterEncoding) {
+        self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
             match h {
                 RegisterHalf::FULL => *r = *r + 1,
                 RegisterHalf::HIGH => {
@@ -657,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inc_register_modrm_lower_half_no_overflow() {
+    fn test_inc_register_modrm_lower_half_assert_no_overflow_to_high_half() {
         let mut disk = alloc_box_buffer(1024 * 1024 * 50);
 
         disk[510] = 0x55;
@@ -788,6 +909,32 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.cx, 0b0000001100000000);
+            }
+        }
+    }
+
+    #[test]
+    fn test_inc_register_modrm_assert_overflow_flag() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // inc cx (with modrm)
+        disk[0] = 0b11111111;
+        disk[1] = 0b11000001;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.cx = 0xFFFF;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.cx, 0);
+                assert_eq!(emulator.cpu.flags & Flags::OF.bits(), Flags::OF.bits());
             }
         }
     }
