@@ -466,7 +466,7 @@ impl Emulator {
                     Operand::Memory(ref m) => {
                         match operand_size {
                             OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
-                            OperandSize::Word => Value::Word(self.ram[m.0 as usize] as u16 | ((self.ram[(m.0 + 1) as usize] as u16) << 8)),
+                            OperandSize::Word => Value::Word(self.read_word(m)),
                         }
                     }
                 };
@@ -519,8 +519,7 @@ impl Emulator {
                                         self.ram[m.0 as usize] = b
                                     },
                                     Value::Word(w) => {
-                                        self.ram[m.0 as usize] = w as u8;
-                                        self.ram[(m.0 + 1) as usize] = (w >> 8) as u8
+                                        self.write_word(&m, w);
                                     },
                                 };
                             },
@@ -548,7 +547,8 @@ impl Emulator {
                             },
                             _ => {
                                 let address = self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override);
-                                self.inc_address(address);
+                                let value = self.read_word(&address) + 1;
+                                self.write_word(&address, value);
                             },
                         }
                     },
@@ -561,9 +561,13 @@ impl Emulator {
         Ok(())
     }
 
-    // TODO: 8 bit vs 16 bit
-    fn inc_address(&mut self, address: U20) {
-        self.ram[address.0 as usize] += 1;
+    fn read_word(&self, m: &U20) -> u16 {
+        self.ram[m.0 as usize] as u16 | ((self.ram[(m.0 + 1) as usize] as u16) << 8)
+    }
+
+    fn write_word(&mut self, m: &U20, w: u16) {
+        self.ram[m.0 as usize] = w as u8;
+        self.ram[(m.0 + 1) as usize] = (w >> 8) as u8
     }
 
     fn inc_register(&mut self, register: RegisterEncoding) {
