@@ -432,6 +432,49 @@ impl Emulator {
             segment_override = Some(((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap());
             address = U20::new(self.cpu.cs, self.cpu.ip + 1);
         }
+        match self.ram[address.0 as usize] >> 4 {
+            0b1011 => {
+                // MOV
+                let operand_size: OperandSize = ((self.ram[address.0 as usize] & 0b00001000) >> 3).try_into().unwrap();
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap()),
+                };
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
+                    match h {
+                        RegisterHalf::FULL => *r = match immediate {
+                            Value::Word(w) => w,
+                            _ => unreachable!(),
+                        },
+                        RegisterHalf::HIGH => *r = match immediate {
+                            Value::Byte(b) => {
+                                let low = *r & 0x00FF;
+                                low & ((b as u16) << 8)
+                            },
+                            _ => unreachable!(),
+                        },
+                        RegisterHalf::LOW => *r = match immediate {
+                            Value::Byte(b) => {
+                                let high = *r & 0xFF00;
+                                high & (b as u16)
+                            },
+                            _ => unreachable!(),
+                        },
+                    }
+                });
+            },
+            _ => (),
+        }
         match self.ram[address.0 as usize] >> 3 {
             // INC, register-mode
             0b01000 => {
@@ -444,12 +487,14 @@ impl Emulator {
             _ => (),
         }
         match self.ram[address.0 as usize] >> 2 {
-            // ADD
+            // ADD, modr/m
             0b00000000 => {
                 // TODO: Update flags
+                instruction_size += 1;
                 let direction: TwoOperandDirection = ((self.ram[address.0 as usize] & 0b00000010) >> 1).try_into().unwrap();
                 let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                 let register: RegisterEncoding = match operand_size {
                     OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
                     OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
@@ -935,6 +980,31 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.cpu.cx, 0);
                 assert_eq!(emulator.cpu.flags & Flags::OF.bits(), Flags::OF.bits());
+            }
+        }
+    }
+
+    #[test]
+    fn test_mov_immediate_word() {
+        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // mov di,0xf00f
+        disk[0] = 0b10111111;
+        disk[1] = 0b00001111;
+        disk[2] = 0b11110000;
+        // hlt
+        disk[3] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.di, 0xF00F);
             }
         }
     }
