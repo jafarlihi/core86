@@ -19,6 +19,7 @@ name = "core86"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "intbits",
  "num_enum",
 ]
 
@@ -37,6 +38,12 @@ dependencies = [
  "autocfg",
  "hashbrown",
 ]
+
+[[package]]
+name = "intbits"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5170c2c8ecda29c1bccb9d95ccbe107bc75fa084dc0c9c6087e719f9d46330e5"
 
 [[package]]
 name = "memchr"
