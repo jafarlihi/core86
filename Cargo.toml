@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 bitflags = "2.2.1"
+num_enum = "0.6.1"

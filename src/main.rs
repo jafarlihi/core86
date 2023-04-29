@@ -1,5 +1,7 @@
 use std::alloc::{self, Layout};
 use bitflags::bitflags;
+use num_enum::TryFromPrimitive;
+use std::convert::TryFrom;
 
 enum RegisterEncoding {
     RegisterEncoding8(RegisterEncoding8),
@@ -11,6 +13,8 @@ enum RM {
     BaseIndex((Option<RegisterEncoding16>, Option<RegisterEncoding16>)),
 }
 
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 enum RegisterEncoding16 {
     AX = 0b000,
     CX = 0b001,
@@ -22,23 +26,8 @@ enum RegisterEncoding16 {
     DI = 0b111,
 }
 
-impl TryFrom<u8> for RegisterEncoding16 {
-    type Error = ();
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            x if x == RegisterEncoding16::AX as u8 => Ok(RegisterEncoding16::AX),
-            x if x == RegisterEncoding16::CX as u8 => Ok(RegisterEncoding16::CX),
-            x if x == RegisterEncoding16::DX as u8 => Ok(RegisterEncoding16::DX),
-            x if x == RegisterEncoding16::BX as u8 => Ok(RegisterEncoding16::BX),
-            x if x == RegisterEncoding16::SP as u8 => Ok(RegisterEncoding16::SP),
-            x if x == RegisterEncoding16::BP as u8 => Ok(RegisterEncoding16::BP),
-            x if x == RegisterEncoding16::SI as u8 => Ok(RegisterEncoding16::SI),
-            x if x == RegisterEncoding16::DI as u8 => Ok(RegisterEncoding16::DI),
-            _ => Err(()),
-        }
-    }
-}
-
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 enum RegisterEncoding8 {
     AL = 0b000,
     CL = 0b001,
@@ -48,23 +37,6 @@ enum RegisterEncoding8 {
     CH = 0b101,
     DH = 0b110,
     BH = 0b111,
-}
-
-impl TryFrom<u8> for RegisterEncoding8 {
-    type Error = ();
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            x if x == RegisterEncoding8::AL as u8 => Ok(RegisterEncoding8::AL),
-            x if x == RegisterEncoding8::CL as u8 => Ok(RegisterEncoding8::CL),
-            x if x == RegisterEncoding8::DL as u8 => Ok(RegisterEncoding8::DL),
-            x if x == RegisterEncoding8::BL as u8 => Ok(RegisterEncoding8::BL),
-            x if x == RegisterEncoding8::AH as u8 => Ok(RegisterEncoding8::AH),
-            x if x == RegisterEncoding8::CH as u8 => Ok(RegisterEncoding8::CH),
-            x if x == RegisterEncoding8::DH as u8 => Ok(RegisterEncoding8::DH),
-            x if x == RegisterEncoding8::BH as u8 => Ok(RegisterEncoding8::BH),
-            _ => Err(()),
-        }
-    }
 }
 
 fn alloc_box_buffer(len: usize) -> Box<[u8]> {
@@ -92,24 +64,13 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 enum SegmentRegister {
     ES = 00,
     CS = 01,
     SS = 10,
     DS = 11,
-}
-
-impl TryFrom<u8> for SegmentRegister {
-    type Error = ();
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            x if x == SegmentRegister::ES as u8 => Ok(SegmentRegister::ES),
-            x if x == SegmentRegister::CS as u8 => Ok(SegmentRegister::CS),
-            x if x == SegmentRegister::SS as u8 => Ok(SegmentRegister::SS),
-            x if x == SegmentRegister::DS as u8 => Ok(SegmentRegister::DS),
-            _ => Err(()),
-        }
-    }
 }
 
 struct CPU {
@@ -223,57 +184,28 @@ struct Emulator {
     disk: Box<[u8]>,
 }
 
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 enum ModRMMod {
     NoDisplacement = 0b00,
     OneByteDisplacement = 0b01,
     TwoByteDisplacement = 0b10,
     Register = 0b11,
-    Direct = 0xCAFEBABE,
+    Direct = 0xFF,
 }
 
-impl TryFrom<u8> for ModRMMod {
-    type Error = ();
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            x if x == ModRMMod::NoDisplacement as u8 => Ok(ModRMMod::NoDisplacement),
-            x if x == ModRMMod::OneByteDisplacement as u8 => Ok(ModRMMod::OneByteDisplacement),
-            x if x == ModRMMod::TwoByteDisplacement as u8 => Ok(ModRMMod::TwoByteDisplacement),
-            x if x == ModRMMod::Register as u8 => Ok(ModRMMod::Register),
-            _ => Err(()),
-        }
-    }
-}
-
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 enum TwoOperandDirection {
     ModRM = 0,
     Register = 1,
 }
 
-impl TryFrom<u8> for TwoOperandDirection {
-    type Error = ();
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            x if x == TwoOperandDirection::ModRM as u8 => Ok(TwoOperandDirection::ModRM),
-            x if x == TwoOperandDirection::Register as u8 => Ok(TwoOperandDirection::Register),
-            _ => Err(()),
-        }
-    }
-}
-
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[repr(u8)]
 enum OperandSize {
     Byte = 0,
     Word = 1,
-}
-
-impl TryFrom<u8> for OperandSize {
-    type Error = ();
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
-        match v {
-            x if x == OperandSize::Byte as u8 => Ok(OperandSize::Byte),
-            x if x == OperandSize::Word as u8 => Ok(OperandSize::Word),
-            _ => Err(()),
-        }
-    }
 }
 
 enum Operand {
