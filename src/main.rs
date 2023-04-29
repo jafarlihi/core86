@@ -1,7 +1,6 @@
-use std::alloc::{self, Layout};
+use std::convert::TryFrom;
 use bitflags::bitflags;
 use num_enum::TryFromPrimitive;
-use std::convert::TryFrom;
 
 enum RegisterEncoding {
     RegisterEncoding8(RegisterEncoding8),
@@ -37,16 +36,6 @@ enum RegisterEncoding8 {
     CH = 0b101,
     DH = 0b110,
     BH = 0b111,
-}
-
-fn alloc_box_buffer(len: usize) -> Box<[u8]> {
-    if len == 0 {
-        return <Box<[u8]>>::default();
-    }
-    let layout = Layout::array::<u8>(len).unwrap();
-    let ptr = unsafe { alloc::alloc_zeroed(layout) };
-    let slice_ptr = core::ptr::slice_from_raw_parts_mut(ptr, len);
-    unsafe { Box::from_raw(slice_ptr) }
 }
 
 bitflags! {
@@ -147,14 +136,14 @@ impl CPU {
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DI) => Value::Word(self.di),
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BP) => Value::Word(self.bp),
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::SP) => Value::Word(self.sp),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH) => Value::Byte((self.ax >> 8) as u8),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL) => Value::Byte((self.ax & 0b0000000011111111) as u8),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BH) => Value::Byte((self.bx >> 8) as u8),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BL) => Value::Byte((self.bx & 0b0000000011111111) as u8),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CH) => Value::Byte((self.cx >> 8) as u8),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL) => Value::Byte((self.cx & 0b0000000011111111) as u8),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DH) => Value::Byte((self.dx >> 8) as u8),
-            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DL) => Value::Byte((self.dx & 0b0000000011111111) as u8),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH) => Value::Byte(self.ax.to_le_bytes()[1]),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL) => Value::Byte(self.ax.to_le_bytes()[0]),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BH) => Value::Byte(self.bx.to_le_bytes()[1]),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::BL) => Value::Byte(self.bx.to_le_bytes()[0]),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CH) => Value::Byte(self.cx.to_le_bytes()[1]),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL) => Value::Byte(self.cx.to_le_bytes()[0]),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DH) => Value::Byte(self.dx.to_le_bytes()[1]),
+            RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DL) => Value::Byte(self.dx.to_le_bytes()[0]),
         }
     }
 }
@@ -217,7 +206,7 @@ impl Emulator {
     fn new(disk: Box<[u8]>) -> Self {
         Emulator {
             cpu: CPU::new(),
-            ram: alloc_box_buffer(1024 * 1024),
+            ram: vec![0; 1024 * 1024].into_boxed_slice(),
             disk,
         }
     }
@@ -261,7 +250,7 @@ impl Emulator {
                 }
             }
         };
-        if modrm & 0b00000111 == 0b00000110 && matches!(m, ModRMMod::NoDisplacement) {
+        if modrm & 0b00000111 == 0b00000110 && m == ModRMMod::NoDisplacement {
             m = ModRMMod::Direct;
         }
         (m, opcode, rm)
@@ -275,7 +264,7 @@ impl Emulator {
                 bi.0.map_or(
                     0,
                     |r| {
-                        if matches!(r, RegisterEncoding16::BP) {
+                        if r == RegisterEncoding16::BP {
                             use_ss = true;
                         }
                         match self.cpu.get_register(&RegisterEncoding::RegisterEncoding16(r)) {
@@ -709,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_inc_register() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -732,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_inc_register_modrm() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -756,7 +745,7 @@ mod tests {
 
     #[test]
     fn test_inc_register_modrm_lower_half_assert_no_overflow_to_high_half() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -781,7 +770,7 @@ mod tests {
 
     #[test]
     fn test_inc_byte_one_displacement() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -808,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_segment_override_inc_word_one_displacement() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -837,7 +826,7 @@ mod tests {
 
     #[test]
     fn test_inc_byte_direct() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -866,7 +855,7 @@ mod tests {
 
     #[test]
     fn test_add_half_registers_register_operand_direction() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -892,7 +881,7 @@ mod tests {
 
     #[test]
     fn test_inc_register_modrm_assert_overflow_flag() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
@@ -918,7 +907,7 @@ mod tests {
 
     #[test]
     fn test_mov_immediate_word() {
-        let mut disk = alloc_box_buffer(1024 * 1024 * 50);
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
         disk[511] = 0xAA;
