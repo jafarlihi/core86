@@ -192,6 +192,17 @@ enum TwoOperandDirection {
     Register = 1,
 }
 
+impl TryFrom<bool> for TwoOperandDirection {
+    type Error = ();
+    fn try_from(v: bool) -> Result<Self, Self::Error> {
+        match v {
+            x if x == true => Ok(TwoOperandDirection::Register),
+            x if x == false => Ok(TwoOperandDirection::ModRM),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
 enum OperandSize {
@@ -377,7 +388,7 @@ impl Emulator {
         }
         match self.ram[address.0 as usize] >> 4 {
             0b1011 => {
-                // MOV, immediate
+                // MOV, immediate, register-mode
                 let operand_size: OperandSize = ((self.ram[address.0 as usize] & 0b00001000) >> 3).try_into().unwrap();
                 let register: RegisterEncoding = match operand_size {
                     OperandSize::Byte => RegisterEncoding::RegisterEncoding8((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap()),
@@ -520,6 +531,86 @@ impl Emulator {
                 }
                 self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
             },
+            0b00100010 => {
+                // MOV, mod/rm
+                instruction_size += 1;
+                let direction: TwoOperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let operand = match modrm.0 {
+                    ModRMMod::Register => {
+                        match modrm.2 {
+                            RM::Register(e) => Operand::Register(e),
+                            _ => unreachable!(),
+                        }
+                    },
+                    _ => {
+                        Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
+                    },
+                };
+                let operand_value = match operand {
+                    Operand::Register(ref r) => self.cpu.get_register(&r),
+                    Operand::Memory(ref m) => {
+                        match operand_size {
+                            OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
+                            OperandSize::Word => Value::Word(self.read_word(&m)),
+                        }
+                    },
+                };
+                let register_value = self.cpu.get_register(&register);
+                match direction {
+                    TwoOperandDirection::Register => {
+                        self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
+                            match h {
+                                RegisterHalf::FULL => {
+                                    match operand_value {
+                                        Value::Word(w) => *r = w,
+                                        _ => unreachable!(),
+                                    };
+                                },
+                                RegisterHalf::LOW => {
+                                    match operand_value {
+                                        Value::Byte(b) => {
+                                            let high = *r & 0xFF00;
+                                            *r = high & (b as u16);
+                                        },
+                                        _ => unreachable!(),
+                                    }
+                                },
+                                RegisterHalf::HIGH => {
+                                    match operand_value {
+                                        Value::Byte(b) => {
+                                            let low = *r & 0x00FF;
+                                            *r = low & ((b as u16) << 8);
+                                        },
+                                        _ => unreachable!(),
+                                    };
+                                },
+                            }
+                        });
+                    },
+                    TwoOperandDirection::ModRM => {
+                        match register_value {
+                            Value::Byte(b) => {
+                                match operand {
+                                    Operand::Memory(m) => self.ram[m.0 as usize] = b,
+                                    _ => unreachable!(),
+                                };
+                            },
+                            Value::Word(w) => {
+                                match operand {
+                                    Operand::Memory(m) => self.write_word(&m, w),
+                                    _ => unreachable!(),
+                                };
+                            },
+                        };
+                    },
+                };
+            },
             0b00100000 => {
                 let mut sign_extend = self.ram[address.0 as usize].bit(1);
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
@@ -584,12 +675,12 @@ impl Emulator {
                                             match h {
                                                 // TODO: Don't repeat this every time
                                                 RegisterHalf::LOW => {
-                                                    let low = *r & 0x00FF;
-                                                    *r = low & ((b as u16) << 8);
-                                                },
-                                                RegisterHalf::HIGH => {
                                                     let high = *r & 0xFF00;
                                                     *r = high & (b as u16);
+                                                },
+                                                RegisterHalf::HIGH => {
+                                                    let low = *r & 0x00FF;
+                                                    *r = low & ((b as u16) << 8);
                                                 },
                                                 _ => unreachable!(),
                                             };
@@ -1075,6 +1166,32 @@ mod tests {
                 let address = U20::new(emulator.cpu.ds, offset);
                 assert_eq!(emulator.ram[address.0 as usize], 0b10001111);
                 assert_eq!(emulator.ram[address.0 as usize + 1], 0b11111111);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mov_modrm_register_to_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // mov di,bx
+        disk[0] = 0b10001011;
+        disk[1] = 0b11111011;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.di = 0xCAFE;
+        emulator.cpu.bx = 0xBABE;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.di, 0xBABE);
             }
         }
     }
