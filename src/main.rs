@@ -745,6 +745,74 @@ impl Emulator {
                 };
                 self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
             },
+            0b01100011 => {
+                instruction_size += 1;
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                match modrm.1 {
+                    // MOV, mod/rm, immediate
+                    0b00000000 => {
+                        let operand = match modrm.0 {
+                            ModRMMod::Register => {
+                                match modrm.2 {
+                                    RM::Register(e) => Operand::Register(e),
+                                    _ => unreachable!(),
+                                }
+                            },
+                            _ => {
+                                Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
+                            },
+                        };
+                        let immediate = match operand_size {
+                            OperandSize::Byte => {
+                                instruction_size += 1;
+                                Value::Byte(self.ram[address.0 as usize + 2])
+                            },
+                            OperandSize::Word => {
+                                instruction_size += 2;
+                                Value::Word((self.ram[address.0 as usize + 3] as u16) << 8 | self.ram[address.0 as usize + 2] as u16)
+                            },
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.mutate_register(&r, |r: &mut u16, h: RegisterHalf| {
+                                    match h {
+                                        RegisterHalf::FULL => *r = match immediate {
+                                            Value::Word(w) => w,
+                                            _ => unreachable!(),
+                                        },
+                                        RegisterHalf::HIGH => *r = match immediate {
+                                            Value::Byte(b) => {
+                                                let low = *r & 0x00FF;
+                                                low & ((b as u16) << 8)
+                                            },
+                                            _ => unreachable!(),
+                                        },
+                                        RegisterHalf::LOW => *r = match immediate {
+                                            Value::Byte(b) => {
+                                                let high = *r & 0xFF00;
+                                                high & (b as u16)
+                                            },
+                                            _ => unreachable!(),
+                                        },
+                                    }
+                                });
+                            },
+                            Operand::Memory(m) => {
+                                match immediate {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                    },
+                    _ => unreachable!(),
+                };
+            },
             _ => (),
         }
         self.cpu.ip += instruction_size;
@@ -1192,6 +1260,32 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.di, 0xBABE);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mov_modrm_immediate_word() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // mov cx,0xaaaa
+        disk[0] = 0b11000111;
+        disk[1] = 0b11000001;
+        disk[2] = 0b10101010;
+        disk[3] = 0b10101010;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.cx, 0xAAAA);
             }
         }
     }
