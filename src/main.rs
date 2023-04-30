@@ -411,6 +411,16 @@ impl Emulator {
             segment_override = Some(((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap());
             address = U20::new(self.cpu.cs, self.cpu.ip + 1);
         }
+        // PUSH, segment register
+        if self.ram[address.0 as usize] & 0b11100111 == 0b00000110 {
+            let segment: SegmentRegister = ((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap();
+            let segment: RegisterEncoding16 = segment.try_into().unwrap();
+            let value = self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(segment));
+            match value {
+                Value::Word(w) => self.push_word(w),
+                _ => unreachable!(),
+            };
+        }
         match self.ram[address.0 as usize] >> 4 {
             // MOV, immediate, register-mode
             0b1011 => {
@@ -462,6 +472,15 @@ impl Emulator {
                 self.inc_register(&register);
                 let after = self.cpu.read_register(&register);
                 self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
+            },
+            // PUSH, register-mode
+            0b01010 => {
+                let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
+                let value = self.cpu.read_register(&register);
+                match value {
+                    Value::Word(w) => self.push_word(w),
+                    _ => unreachable!(),
+                };
             },
             _ => (),
         }
@@ -741,6 +760,10 @@ impl Emulator {
                     let direction: TwoOperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
                     let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
                     let register: SegmentRegister = modrm.1.try_into().unwrap();
+                    if direction == TwoOperandDirection::Register && register == SegmentRegister::CS {
+                        self.cpu.ip += instruction_size;
+                        return Ok(());
+                    }
                     let register: RegisterEncoding16 = register.try_into().unwrap();
                     let operand = match modrm.0 {
                         ModRMMod::Register => {
@@ -796,10 +819,10 @@ impl Emulator {
                 let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
                 instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
-                let (before, after) = match modrm.1 {
+                match modrm.1 {
                     // INC, modr/m
                     0b00000000 => {
-                        match modrm.0 {
+                        let (before, after) = match modrm.0 {
                             ModRMMod::Register => {
                                 match modrm.2 {
                                     RM::Register(e) => {
@@ -818,11 +841,33 @@ impl Emulator {
                                 let after = self.read_word(&address);
                                 (Value::Word(before), Value::Word(after))
                             },
-                        }
+                        };
+                        self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
+                    },
+                    // PUSH, modr/m
+                    0b00000110 => {
+                        let operand = match modrm.0 {
+                            ModRMMod::Register => {
+                                match modrm.2 {
+                                    RM::Register(e) => Operand::Register(e),
+                                    _ => unreachable!(),
+                                }
+                            },
+                            _ => {
+                                Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
+                            },
+                        };
+                        let operand_value = match operand {
+                            Operand::Register(ref r) => self.cpu.read_register(&r),
+                            Operand::Memory(ref m) => Value::Word(self.read_word(m)),
+                        };
+                        match operand_value {
+                            Value::Word(w) => self.push_word(w),
+                            _ => unreachable!(),
+                        };
                     },
                     _ => unreachable!(),
                 };
-                self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
             },
             0b1100011 => {
                 instruction_size += 1;
@@ -1072,6 +1117,13 @@ impl Emulator {
     fn write_word(&mut self, m: &U20, w: u16) {
         self.ram[m.0 as usize] = w as u8;
         self.ram[(m.0 + 1) as usize] = (w >> 8) as u8
+    }
+
+    fn push_word(&mut self, value: u16) {
+        let address = U20::new(self.cpu.ss, self.cpu.sp);
+        self.ram[address.0 as usize - 1] = value.bits(8..16) as u8;
+        self.ram[address.0 as usize - 2] = value.bits(0..8) as u8;
+        self.cpu.sp -= 2;
     }
 
     fn inc_register(&mut self, register: &RegisterEncoding) {
@@ -1505,6 +1557,94 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.ss, 0xDEAD);
+            }
+        }
+    }
+
+    #[test]
+    fn test_push_modrm_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // push bx
+        disk[0] = 0b11111111;
+        disk[1] = 0b11110011;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0x00A8;
+        emulator.cpu.sp = 0x000C;
+        emulator.cpu.bx = 0xA01F;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                let address = U20::new(0x00A8, 0x000C);
+                assert_eq!(emulator.ram[address.0 as usize - 1], 0xA0);
+                assert_eq!(emulator.ram[address.0 as usize - 2], 0x1F);
+                assert_eq!(emulator.cpu.sp, 0x000A);
+            }
+        }
+    }
+
+    #[test]
+    fn test_push_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // push bx
+        disk[0] = 0b01010011;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0x00A8;
+        emulator.cpu.sp = 0x000C;
+        emulator.cpu.bx = 0xA01F;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                let address = U20::new(0x00A8, 0x000C);
+                assert_eq!(emulator.ram[address.0 as usize - 1], 0xA0);
+                assert_eq!(emulator.ram[address.0 as usize - 2], 0x1F);
+                assert_eq!(emulator.cpu.sp, 0x000A);
+            }
+        }
+    }
+
+    #[test]
+    fn test_push_segment_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // push ds
+        disk[0] = 0b00011110;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0x00A8;
+        emulator.cpu.sp = 0x000C;
+        emulator.cpu.ds = 0xA01F;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                let address = U20::new(0x00A8, 0x000C);
+                assert_eq!(emulator.ram[address.0 as usize - 1], 0xA0);
+                assert_eq!(emulator.ram[address.0 as usize - 2], 0x1F);
+                assert_eq!(emulator.cpu.sp, 0x000A);
             }
         }
     }
