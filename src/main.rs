@@ -174,6 +174,36 @@ impl CPU {
         }
     }
 
+    fn read_register16(&self, register: &RegisterEncoding16) -> u16 {
+        match register {
+            RegisterEncoding16::AX => self.ax,
+            RegisterEncoding16::BX => self.bx,
+            RegisterEncoding16::CX => self.cx,
+            RegisterEncoding16::DX => self.dx,
+            RegisterEncoding16::SI => self.si,
+            RegisterEncoding16::DI => self.di,
+            RegisterEncoding16::BP => self.bp,
+            RegisterEncoding16::SP => self.sp,
+            RegisterEncoding16::ES => self.es,
+            RegisterEncoding16::CS => self.cs,
+            RegisterEncoding16::SS => self.ss,
+            RegisterEncoding16::DS => self.ds,
+        }
+    }
+
+    fn read_register8(&self, register: &RegisterEncoding8) -> u8 {
+        match register {
+            RegisterEncoding8::AH => self.ax.to_le_bytes()[1],
+            RegisterEncoding8::AL => self.ax.to_le_bytes()[0],
+            RegisterEncoding8::BH => self.bx.to_le_bytes()[1],
+            RegisterEncoding8::BL => self.bx.to_le_bytes()[0],
+            RegisterEncoding8::CH => self.cx.to_le_bytes()[1],
+            RegisterEncoding8::CL => self.cx.to_le_bytes()[0],
+            RegisterEncoding8::DH => self.dx.to_le_bytes()[1],
+            RegisterEncoding8::DL => self.dx.to_le_bytes()[0],
+        }
+    }
+
     fn write_register(&mut self, register: &RegisterEncoding, value: &Value) {
         self.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
             match h {
@@ -1007,6 +1037,14 @@ impl Emulator {
                 },
                 _ => (),
             };
+        }
+        // XLAT
+        if self.ram[address.0 as usize] == 0b11010111 {
+            let table_offset = self.cpu.read_register16(&RegisterEncoding16::BX);
+            let register_value = self.cpu.read_register8(&RegisterEncoding8::AL);
+            let table_address = U20::new(self.cpu.ds, table_offset + register_value as u16);
+            let value = Value::Byte(self.ram[table_address.0 as usize]);
+            self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL), &value);
         }
         self.cpu.ip += instruction_size;
         Ok(())
