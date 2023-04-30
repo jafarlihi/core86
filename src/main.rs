@@ -932,6 +932,58 @@ impl Emulator {
                     },
                 };
             },
+            // IN, direct
+            0b1110010 => {
+                instruction_size += 1;
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let port = self.ram[address.0 as usize + 1];
+                let value = self.read_port(port as u16, &operand_size);
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                self.cpu.write_register(&register, &value);
+            },
+            // IN, indirect
+            0b1110110 => {
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let port = self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX));
+                let value = match port {
+                    Value::Word(w) => self.read_port(w, &operand_size),
+                    _ => unreachable!(),
+                };
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                self.cpu.write_register(&register, &value);
+            },
+            // OUT, direct
+            0b1110010 => {
+                instruction_size += 1;
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let port = self.ram[address.0 as usize + 1];
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let value = self.cpu.read_register(&register);
+                self.write_port(port as u16, value);
+            },
+            // OUT, indirect
+            0b1110110 => {
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let port = self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX));
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let value = self.cpu.read_register(&register);
+                match port {
+                    Value::Word(w) => self.write_port(w, value),
+                    _ => unreachable!(),
+                };
+            },
             _ => (),
         }
         if self.ram[address.0 as usize] == 0b10001111 {
@@ -958,6 +1010,22 @@ impl Emulator {
         }
         self.cpu.ip += instruction_size;
         Ok(())
+    }
+
+    fn read_port(&self, port: u16, operand_size: &OperandSize) -> Value {
+        match operand_size {
+            // TODO
+            OperandSize::Byte => Value::Byte(0),
+            OperandSize::Word => Value::Word(0),
+        }
+    }
+
+    fn write_port(&self, port: u16, value: Value) {
+        match value {
+            // TODO
+            Value::Byte(b) => (),
+            Value::Word(w) => (),
+        }
     }
 
     fn update_flags(&mut self, flags: &str, before: Option<Value>, after: Option<Value>, increasing: Option<bool>) {
