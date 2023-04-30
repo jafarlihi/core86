@@ -421,6 +421,17 @@ impl Emulator {
                 _ => unreachable!(),
             };
         }
+        // POP, segment register
+        if self.ram[address.0 as usize] & 0b11100111 == 0b00000111 {
+            let segment: SegmentRegister = ((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap();
+            if segment == SegmentRegister::CS {
+                self.cpu.ip += instruction_size;
+                return Ok(());
+            }
+            let segment: RegisterEncoding16 = segment.try_into().unwrap();
+            self.pop_word(&Operand::Register(RegisterEncoding::RegisterEncoding16(segment)));
+        }
+
         match self.ram[address.0 as usize] >> 4 {
             // MOV, immediate, register-mode
             0b1011 => {
@@ -481,6 +492,11 @@ impl Emulator {
                     Value::Word(w) => self.push_word(w),
                     _ => unreachable!(),
                 };
+            },
+            // POP, register-mode
+            0b01011 => {
+                let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
+                self.pop_word(&Operand::Register(register));
             },
             _ => (),
         }
@@ -656,6 +672,7 @@ impl Emulator {
                 };
             },
             0b00100000 => {
+                instruction_size += 1;
                 let mut sign_extend = self.ram[address.0 as usize].bit(1);
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 match operand_size {
@@ -997,6 +1014,28 @@ impl Emulator {
             },
             _ => (),
         }
+        if self.ram[address.0 as usize] == 0b10001111 {
+            instruction_size += 1;
+            let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
+            match modrm.1 {
+                // POP, modr/m
+                0b000 => {
+                    let operand = match modrm.0 {
+                        ModRMMod::Register => {
+                            match modrm.2 {
+                                RM::Register(e) => Operand::Register(e),
+                                _ => unreachable!(),
+                            }
+                        },
+                        _ => {
+                            Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
+                        },
+                    };
+                    self.pop_word(&operand);
+                },
+                _ => (),
+            };
+        }
         self.cpu.ip += instruction_size;
         Ok(())
     }
@@ -1117,6 +1156,22 @@ impl Emulator {
     fn write_word(&mut self, m: &U20, w: u16) {
         self.ram[m.0 as usize] = w as u8;
         self.ram[(m.0 + 1) as usize] = (w >> 8) as u8
+    }
+
+    fn pop_word(&mut self, operand: &Operand) {
+        let address = U20::new(self.cpu.ss, self.cpu.sp);
+        let value = self.ram[address.0 as usize] as u16 | (self.ram[address.0 as usize + 1] as u16) << 8;
+        match operand {
+            Operand::Register(r) => {
+                self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
+                    *r = value;
+                });
+            },
+            Operand::Memory(m) => {
+                self.write_word(&m, value);
+            },
+        };
+        self.cpu.sp += 2;
     }
 
     fn push_word(&mut self, value: u16) {
@@ -1645,6 +1700,94 @@ mod tests {
                 assert_eq!(emulator.ram[address.0 as usize - 1], 0xA0);
                 assert_eq!(emulator.ram[address.0 as usize - 2], 0x1F);
                 assert_eq!(emulator.cpu.sp, 0x000A);
+            }
+        }
+    }
+
+    #[test]
+    fn test_pop_modrm_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // pop bp
+        disk[0] = 0b10001111;
+        disk[1] = 0b11000101;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0x00A8;
+        emulator.cpu.sp = 0x000A;
+        let address = U20::new(0x00A8, 0x000A);
+        emulator.ram[address.0 as usize] = 0x1F;
+        emulator.ram[address.0 as usize + 1] = 0xA0;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 0xA01F);
+                assert_eq!(emulator.cpu.sp, 0x000C)
+            }
+        }
+    }
+
+    #[test]
+    fn test_pop_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // pop si
+        disk[0] = 0b01011110;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0x00A8;
+        emulator.cpu.sp = 0x000A;
+        let address = U20::new(0x00A8, 0x000A);
+        emulator.ram[address.0 as usize] = 0x1F;
+        emulator.ram[address.0 as usize + 1] = 0xA0;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.si, 0xA01F);
+                assert_eq!(emulator.cpu.sp, 0x000C)
+            }
+        }
+    }
+
+    #[test]
+    fn test_pop_segment_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // pop ds
+        disk[0] = 0b00011111;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0x00A8;
+        emulator.cpu.sp = 0x000A;
+        let address = U20::new(0x00A8, 0x000A);
+        emulator.ram[address.0 as usize] = 0x1F;
+        emulator.ram[address.0 as usize + 1] = 0xA0;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ds, 0xA01F);
+                assert_eq!(emulator.cpu.sp, 0x000C)
             }
         }
     }
