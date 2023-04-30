@@ -3,6 +3,7 @@ use bitflags::bitflags;
 use num_enum::TryFromPrimitive;
 use intbits::Bits;
 
+#[derive(Debug)]
 enum RegisterEncoding {
     RegisterEncoding8(RegisterEncoding8),
     RegisterEncoding16(RegisterEncoding16),
@@ -459,14 +460,14 @@ impl Emulator {
                         RegisterHalf::HIGH => *r = match immediate {
                             Value::Byte(b) => {
                                 let low = *r & 0x00FF;
-                                low & ((b as u16) << 8)
+                                low | ((b as u16) << 8)
                             },
                             _ => unreachable!(),
                         },
                         RegisterHalf::LOW => *r = match immediate {
                             Value::Byte(b) => {
                                 let high = *r & 0xFF00;
-                                high & (b as u16)
+                                high | (b as u16)
                             },
                             _ => unreachable!(),
                         },
@@ -497,6 +498,25 @@ impl Emulator {
             0b01011 => {
                 let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
                 self.pop_word(&Operand::Register(register));
+            },
+            // XCHG, with AX, register-mode
+            0b10010 => {
+                let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
+                let accumulator = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX);
+                let register_value = self.cpu.read_register(&register);
+                let accumulator_value = self.cpu.read_register(&accumulator);
+                self.cpu.mutate_register(&register, |r: &mut u16, _h: RegisterHalf| {
+                    match accumulator_value {
+                        Value::Word(w) => *r = w,
+                        _ => unreachable!(),
+                    };
+                });
+                self.cpu.mutate_register(&accumulator, |r: &mut u16, _h: RegisterHalf| {
+                    match register_value {
+                        Value::Word(w) => *r = w,
+                        _ => unreachable!(),
+                    };
+                });
             },
             _ => (),
         }
@@ -636,7 +656,7 @@ impl Emulator {
                                     match operand_value {
                                         Value::Byte(b) => {
                                             let high = *r & 0xFF00;
-                                            *r = high & (b as u16);
+                                            *r = high | (b as u16);
                                         },
                                         _ => unreachable!(),
                                     }
@@ -645,7 +665,7 @@ impl Emulator {
                                     match operand_value {
                                         Value::Byte(b) => {
                                             let low = *r & 0x00FF;
-                                            *r = low & ((b as u16) << 8);
+                                            *r = low | ((b as u16) << 8);
                                         },
                                         _ => unreachable!(),
                                     };
@@ -737,11 +757,11 @@ impl Emulator {
                                                 // TODO: Don't repeat this every time
                                                 RegisterHalf::LOW => {
                                                     let high = *r & 0xFF00;
-                                                    *r = high & (b as u16);
+                                                    *r = high | (b as u16);
                                                 },
                                                 RegisterHalf::HIGH => {
                                                     let low = *r & 0x00FF;
-                                                    *r = low & ((b as u16) << 8);
+                                                    *r = low | ((b as u16) << 8);
                                                 },
                                                 _ => unreachable!(),
                                             };
@@ -925,14 +945,14 @@ impl Emulator {
                                         RegisterHalf::HIGH => *r = match immediate {
                                             Value::Byte(b) => {
                                                 let low = *r & 0x00FF;
-                                                low & ((b as u16) << 8)
+                                                low | ((b as u16) << 8)
                                             },
                                             _ => unreachable!(),
                                         },
                                         RegisterHalf::LOW => *r = match immediate {
                                             Value::Byte(b) => {
                                                 let high = *r & 0xFF00;
-                                                high & (b as u16)
+                                                high | (b as u16)
                                             },
                                             _ => unreachable!(),
                                         },
@@ -980,7 +1000,7 @@ impl Emulator {
                             match value {
                                 Value::Byte(b) => {
                                     let high = *r & 0xFF00;
-                                    *r = high & (b as u16);
+                                    *r = high | (b as u16);
                                 },
                                 _ => unreachable!(),
                             }
@@ -989,7 +1009,7 @@ impl Emulator {
                             match value {
                                 Value::Byte(b) => {
                                     let low = *r & 0x00FF;
-                                    *r = low & ((b as u16) << 8);
+                                    *r = low | ((b as u16) << 8);
                                 },
                                 _ => unreachable!(),
                             };
@@ -1010,6 +1030,92 @@ impl Emulator {
                 match value {
                     Value::Byte(b) => self.ram[address.0 as usize] = b,
                     Value::Word(w) => self.write_word(&address, w),
+                };
+            },
+            // XCHG, modr/m
+            0b1000011 => {
+                instruction_size += 1;
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let register_value = self.cpu.read_register(&register);
+                let operand = match modrm.0 {
+                    ModRMMod::Register => {
+                        match modrm.2 {
+                            RM::Register(e) => Operand::Register(e),
+                            _ => unreachable!(),
+                        }
+                    },
+                    _ => {
+                        Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
+                    },
+                };
+                let operand_value = match operand {
+                    Operand::Register(ref r) => self.cpu.read_register(&r),
+                    Operand::Memory(ref m) => {
+                        match operand_size {
+                            OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
+                            OperandSize::Word => Value::Word(self.read_word(m)),
+                        }
+                    }
+                };
+                self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
+                    match h {
+                        RegisterHalf::FULL => {
+                            match operand_value {
+                                Value::Word(w) => *r = w,
+                                _ => unreachable!(),
+                            };
+                        },
+                        RegisterHalf::LOW => {
+                            match operand_value {
+                                Value::Byte(b) => {
+                                    let high = *r & 0xFF00;
+                                    *r = high | (b as u16);
+                                },
+                                _ => unreachable!(),
+                            }
+                        },
+                        RegisterHalf::HIGH => {
+                            match operand_value {
+                                Value::Byte(b) => {
+                                    let low = *r & 0x00FF;
+                                    *r = low | ((b as u16) << 8);
+                                },
+                                _ => unreachable!(),
+                            };
+                        },
+                    }
+                });
+                match operand {
+                    Operand::Register(r) => {
+                        self.cpu.mutate_register(&r, |r: &mut u16, h: RegisterHalf| {
+                           match register_value {
+                               Value::Byte(b) => {
+                                    match h {
+                                        RegisterHalf::HIGH => *r = (*r & 0x00FF) | ((b as u16) << 8),
+                                        _ => *r = (*r & 0xFF00) | (b as u16),
+                                    };
+                               },
+                               Value::Word(w) => {
+                                   *r = w
+                               },
+                           };
+                        });
+                    },
+                    Operand::Memory(m) => {
+                        match register_value {
+                            Value::Byte(b) => {
+                                self.ram[m.0 as usize] = b
+                            },
+                            Value::Word(w) => {
+                                self.write_word(&m, w);
+                            },
+                        };
+                    },
                 };
             },
             _ => (),
@@ -1788,6 +1894,59 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.cpu.ds, 0xA01F);
                 assert_eq!(emulator.cpu.sp, 0x000C)
+            }
+        }
+    }
+
+    #[test]
+    fn test_xchg_modrm() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // xchg dh,bh
+        disk[0] = 0b10000110;
+        disk[1] = 0b11110111;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.dx = 0xFFFF;
+        emulator.cpu.bx = 0xAAAA;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.dx, 0xAAFF);
+                assert_eq!(emulator.cpu.bx, 0xFFAA);
+            }
+        }
+    }
+
+    #[test]
+    fn test_xchg_ax() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // xchg ax,bp
+        disk[0] = 0b10010101;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ax = 0xFFFF;
+        emulator.cpu.bp = 0xAAAA;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 0xFFFF);
+                assert_eq!(emulator.cpu.ax, 0xAAAA);
             }
         }
     }
