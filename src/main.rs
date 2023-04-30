@@ -3,18 +3,19 @@ use bitflags::bitflags;
 use num_enum::TryFromPrimitive;
 use intbits::Bits;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum RegisterEncoding {
     RegisterEncoding8(RegisterEncoding8),
     RegisterEncoding16(RegisterEncoding16),
 }
 
+#[derive(Copy, Clone)]
 enum RM {
     Register(RegisterEncoding),
     BaseIndex((Option<RegisterEncoding16>, Option<RegisterEncoding16>)),
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive, Copy, Clone)]
 #[repr(u8)]
 enum RegisterEncoding16 {
     AX = 0b000,
@@ -31,7 +32,7 @@ enum RegisterEncoding16 {
     DS = 0xFD,
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive, Copy, Clone)]
 #[repr(u8)]
 enum RegisterEncoding8 {
     AL = 0b000,
@@ -256,7 +257,7 @@ struct Emulator {
     disk: Box<[u8]>,
 }
 
-#[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
+#[derive(Debug, Eq, PartialEq, TryFromPrimitive, Copy, Clone)]
 #[repr(u8)]
 enum ModRMMod {
     NoDisplacement = 0b00,
@@ -368,6 +369,20 @@ impl Emulator {
             m = ModRMMod::Direct;
         }
         (m, opcode, rm)
+    }
+
+    fn get_operand_by_modrm(&self, address: &U20, modrmmod: &ModRMMod, rm: &RM, segment_override: &Option<SegmentRegister>) -> Operand {
+        match modrmmod {
+            ModRMMod::Register => {
+                match rm {
+                    RM::Register(e) => Operand::Register(*e),
+                    _ => unreachable!(),
+                }
+            },
+            _ => {
+                Operand::Memory(self.calculate_address_by_modrm(&address, *modrmmod, *rm, &segment_override))
+            },
+        }
     }
 
     fn calculate_address_by_rm(&self, rm: RM, displacement: u16, segment_override: &Option<SegmentRegister>) -> U20 {
@@ -567,17 +582,7 @@ impl Emulator {
                     OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
                 };
                 let register_value = self.cpu.read_register(&register);
-                let operand = match modrm.0 {
-                    ModRMMod::Register => {
-                        match modrm.2 {
-                            RM::Register(e) => Operand::Register(e),
-                            _ => unreachable!(),
-                        }
-                    },
-                    _ => {
-                        Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                    },
-                };
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                 let operand_value = self.get_operand_value(&operand, &operand_size);
                 let sum: Value = match register_value {
                     Value::Byte(b) => (b + match operand_value {
@@ -623,17 +628,7 @@ impl Emulator {
                     OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
                     OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
                 };
-                let operand = match modrm.0 {
-                    ModRMMod::Register => {
-                        match modrm.2 {
-                            RM::Register(e) => Operand::Register(e),
-                            _ => unreachable!(),
-                        }
-                    },
-                    _ => {
-                        Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                    },
-                };
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                 let operand_value = self.get_operand_value(&operand, &operand_size);
                 let register_value = self.cpu.read_register(&register);
                 match direction {
@@ -670,17 +665,7 @@ impl Emulator {
                 match modrm.1 {
                     // ADD, modr/m, immediate
                     0b00000000 => {
-                        let operand = match modrm.0 {
-                            ModRMMod::Register => {
-                                match modrm.2 {
-                                    RM::Register(e) => Operand::Register(e),
-                                    _ => unreachable!(),
-                                }
-                            },
-                            _ => {
-                                Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                            },
-                        };
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                         let immediate = match operand_size {
                             OperandSize::Byte => {
                                 instruction_size += 1;
@@ -748,17 +733,7 @@ impl Emulator {
                         return Ok(());
                     }
                     let register: RegisterEncoding16 = register.try_into().unwrap();
-                    let operand = match modrm.0 {
-                        ModRMMod::Register => {
-                            match modrm.2 {
-                                RM::Register(e) => Operand::Register(e),
-                                _ => unreachable!(),
-                            }
-                        },
-                        _ => {
-                            Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                        },
-                    };
+                    let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                     match direction {
                         OperandDirection::Register => {
                             let operand_value = self.get_operand_value(&operand, &OperandSize::Word);
@@ -826,17 +801,7 @@ impl Emulator {
                     },
                     // PUSH, modr/m
                     0b00000110 => {
-                        let operand = match modrm.0 {
-                            ModRMMod::Register => {
-                                match modrm.2 {
-                                    RM::Register(e) => Operand::Register(e),
-                                    _ => unreachable!(),
-                                }
-                            },
-                            _ => {
-                                Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                            },
-                        };
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                         let operand_value = self.get_operand_value(&operand, &OperandSize::Word);
                         match operand_value {
                             Value::Word(w) => self.push_word(w),
@@ -853,17 +818,7 @@ impl Emulator {
                 match modrm.1 {
                     // MOV, mod/rm, immediate
                     0b00000000 => {
-                        let operand = match modrm.0 {
-                            ModRMMod::Register => {
-                                match modrm.2 {
-                                    RM::Register(e) => Operand::Register(e),
-                                    _ => unreachable!(),
-                                }
-                            },
-                            _ => {
-                                Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                            },
-                        };
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                         let immediate = match operand_size {
                             OperandSize::Byte => {
                                 instruction_size += 1;
@@ -933,17 +888,7 @@ impl Emulator {
                     OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
                 };
                 let register_value = self.cpu.read_register(&register);
-                let operand = match modrm.0 {
-                    ModRMMod::Register => {
-                        match modrm.2 {
-                            RM::Register(e) => Operand::Register(e),
-                            _ => unreachable!(),
-                        }
-                    },
-                    _ => {
-                        Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                    },
-                };
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                 let operand_value = self.get_operand_value(&operand, &operand_size);
                 self.cpu.write_register(&register, &operand_value);
                 match operand {
@@ -1022,17 +967,7 @@ impl Emulator {
             match modrm.1 {
                 // POP, modr/m
                 0b000 => {
-                    let operand = match modrm.0 {
-                        ModRMMod::Register => {
-                            match modrm.2 {
-                                RM::Register(e) => Operand::Register(e),
-                                _ => unreachable!(),
-                            }
-                        },
-                        _ => {
-                            Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
-                        },
-                    };
+                    let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                     self.pop_word(&operand);
                 },
                 _ => (),
