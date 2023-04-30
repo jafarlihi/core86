@@ -127,7 +127,7 @@ impl CPU {
         }
     }
 
-    fn get_register(&self, register: &RegisterEncoding) -> Value {
+    fn read_register(&self, register: &RegisterEncoding) -> Value {
         match register {
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX) => Value::Word(self.ax),
             RegisterEncoding::RegisterEncoding16(RegisterEncoding16::BX) => Value::Word(self.bx),
@@ -300,7 +300,7 @@ impl Emulator {
                         if r == RegisterEncoding16::BP {
                             use_ss = true;
                         }
-                        match self.cpu.get_register(&RegisterEncoding::RegisterEncoding16(r)) {
+                        match self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(r)) {
                             Value::Word(w) => w,
                             _ => unreachable!(),
                         }
@@ -308,7 +308,7 @@ impl Emulator {
                 ) + bi.1.map_or(
                     0,
                     |r| {
-                        match self.cpu.get_register(&RegisterEncoding::RegisterEncoding16(r)) {
+                        match self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(r)) {
                             Value::Word(w) => w,
                             _ => unreachable!(),
                         }
@@ -433,9 +433,9 @@ impl Emulator {
             // INC, register-mode
             0b01000 => {
                 let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
-                let before = self.cpu.get_register(&register);
+                let before = self.cpu.read_register(&register);
                 self.inc_register(&register);
-                let after = self.cpu.get_register(&register);
+                let after = self.cpu.read_register(&register);
                 self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
             },
             _ => (),
@@ -452,7 +452,7 @@ impl Emulator {
                     OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
                     OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
                 };
-                let register_value = self.cpu.get_register(&register);
+                let register_value = self.cpu.read_register(&register);
                 let operand = match modrm.0 {
                     ModRMMod::Register => {
                         match modrm.2 {
@@ -465,7 +465,7 @@ impl Emulator {
                     },
                 };
                 let operand_value = match operand {
-                    Operand::Register(ref r) => self.cpu.get_register(&r),
+                    Operand::Register(ref r) => self.cpu.read_register(&r),
                     Operand::Memory(ref m) => {
                         match operand_size {
                             OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
@@ -553,7 +553,7 @@ impl Emulator {
                     },
                 };
                 let operand_value = match operand {
-                    Operand::Register(ref r) => self.cpu.get_register(&r),
+                    Operand::Register(ref r) => self.cpu.read_register(&r),
                     Operand::Memory(ref m) => {
                         match operand_size {
                             OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
@@ -561,7 +561,7 @@ impl Emulator {
                         }
                     },
                 };
-                let register_value = self.cpu.get_register(&register);
+                let register_value = self.cpu.read_register(&register);
                 match direction {
                     TwoOperandDirection::Register => {
                         self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
@@ -649,7 +649,7 @@ impl Emulator {
                             },
                         };
                         let operand_value = match operand {
-                            Operand::Register(ref r) => self.cpu.get_register(&r),
+                            Operand::Register(ref r) => self.cpu.read_register(&r),
                             Operand::Memory(ref m) => {
                                 match operand_size {
                                     OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
@@ -724,9 +724,9 @@ impl Emulator {
                             ModRMMod::Register => {
                                 match modrm.2 {
                                     RM::Register(e) => {
-                                        let before = self.cpu.get_register(&e);
+                                        let before = self.cpu.read_register(&e);
                                         self.inc_register(&e);
-                                        let after = self.cpu.get_register(&e);
+                                        let after = self.cpu.read_register(&e);
                                         (before, after)
                                     }
                                     _ => unreachable!(),
@@ -745,7 +745,7 @@ impl Emulator {
                 };
                 self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
             },
-            0b01100011 => {
+            0b1100011 => {
                 instruction_size += 1;
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
@@ -811,6 +811,64 @@ impl Emulator {
                         };
                     },
                     _ => unreachable!(),
+                };
+            },
+            // MOV, mem to AX/AL
+            0b1010000 => {
+                instruction_size += 2;
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let address = U20::new(self.cpu.ds, (self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16);
+                let value = match operand_size {
+                    OperandSize::Byte => Value::Byte(self.ram[address.0 as usize]),
+                    OperandSize::Word => Value::Word(self.read_word(&address)),
+                };
+                self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
+                    match h {
+                        // TODO: Don't repeat this every time
+                        RegisterHalf::FULL => {
+                            match value {
+                                Value::Word(w) => *r = w,
+                                _ => unreachable!(),
+                            };
+                        },
+                        RegisterHalf::LOW => {
+                            match value {
+                                Value::Byte(b) => {
+                                    let high = *r & 0xFF00;
+                                    *r = high & (b as u16);
+                                },
+                                _ => unreachable!(),
+                            }
+                        },
+                        RegisterHalf::HIGH => {
+                            match value {
+                                Value::Byte(b) => {
+                                    let low = *r & 0x00FF;
+                                    *r = low & ((b as u16) << 8);
+                                },
+                                _ => unreachable!(),
+                            };
+                        },
+                    }
+                });
+            },
+            // MOV, AX/AL to mem
+            0b1010001 => {
+                instruction_size += 2;
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let address = U20::new(self.cpu.ds, (self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16);
+                let value = self.cpu.read_register(&register);
+                match value {
+                    Value::Byte(b) => self.ram[address.0 as usize] = b,
+                    Value::Word(w) => self.write_word(&address, w),
                 };
             },
             _ => (),
@@ -928,6 +986,7 @@ impl Emulator {
     }
 
     fn read_word(&self, m: &U20) -> u16 {
+        // TODO: Is this the correct order?
         self.ram[m.0 as usize] as u16 | ((self.ram[(m.0 + 1) as usize] as u16) << 8)
     }
 
@@ -1286,6 +1345,62 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.cx, 0xAAAA);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mov_mem_to_ax() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // mov ax,[0x7ff8]
+        disk[0] = 0b10100001;
+        disk[1] = 0b11111000;
+        disk[2] = 0b01111111;
+        // hlt
+        disk[3] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let address = U20::new(emulator.cpu.ds, 0x7FF8);
+        emulator.ram[address.0 as usize] = 0xAD;
+        emulator.ram[address.0 as usize + 1] = 0xDE;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ax, 0xDEAD);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mov_al_to_mem() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // mov [0xcccc],al
+        disk[0] = 0b10100010;
+        disk[1] = 0b11001100;
+        disk[2] = 0b11001100;
+        // hlt
+        disk[3] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ax = 0xDEAD;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                let address = U20::new(emulator.cpu.ds, 0xCCCC);
+                assert_eq!(emulator.ram[address.0 as usize], 0xAD);
+                assert_eq!(emulator.ram[address.0 as usize + 1], 0x00);
             }
         }
     }
