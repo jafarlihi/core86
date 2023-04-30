@@ -238,17 +238,17 @@ enum ModRMMod {
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
-enum TwoOperandDirection {
+enum OperandDirection {
     ModRM = 0,
     Register = 1,
 }
 
-impl TryFrom<bool> for TwoOperandDirection {
+impl TryFrom<bool> for OperandDirection {
     type Error = ();
     fn try_from(v: bool) -> Result<Self, Self::Error> {
         match v {
-            x if x == true => Ok(TwoOperandDirection::Register),
-            x if x == false => Ok(TwoOperandDirection::ModRM),
+            x if x == true => Ok(OperandDirection::Register),
+            x if x == false => Ok(OperandDirection::ModRM),
             _ => Err(()),
         }
     }
@@ -528,7 +528,7 @@ impl Emulator {
             // ADD, modr/m
             0b00000000 => {
                 instruction_size += 1;
-                let direction: TwoOperandDirection = ((self.ram[address.0 as usize] & 0b00000010) >> 1).try_into().unwrap();
+                let direction: OperandDirection = ((self.ram[address.0 as usize] & 0b00000010) >> 1).try_into().unwrap();
                 let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
                 instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
@@ -560,10 +560,10 @@ impl Emulator {
                     }).try_into().unwrap(),
                 };
                 match direction {
-                    TwoOperandDirection::Register => {
+                    OperandDirection::Register => {
                         self.cpu.write_register(&register, &sum);
                     },
-                    TwoOperandDirection::ModRM => {
+                    OperandDirection::ModRM => {
                         match operand {
                             Operand::Register(r) => {
                                 self.cpu.write_register(&r, &sum);
@@ -586,7 +586,7 @@ impl Emulator {
             // MOV, mod/rm
             0b00100010 => {
                 instruction_size += 1;
-                let direction: TwoOperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
+                let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
                 let register: RegisterEncoding = match operand_size {
@@ -607,10 +607,10 @@ impl Emulator {
                 let operand_value = self.get_operand_value(&operand, &operand_size);
                 let register_value = self.cpu.read_register(&register);
                 match direction {
-                    TwoOperandDirection::Register => {
+                    OperandDirection::Register => {
                         self.cpu.write_register(&register, &operand_value);
                     },
-                    TwoOperandDirection::ModRM => {
+                    OperandDirection::ModRM => {
                         match register_value {
                             Value::Byte(b) => {
                                 match operand {
@@ -710,10 +710,10 @@ impl Emulator {
                 // MOV, modr/m, segment register
                 if !self.ram[address.0 as usize].bit(0) {
                     instruction_size += 1;
-                    let direction: TwoOperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
+                    let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
                     let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
                     let register: SegmentRegister = modrm.1.try_into().unwrap();
-                    if direction == TwoOperandDirection::Register && register == SegmentRegister::CS {
+                    if direction == OperandDirection::Register && register == SegmentRegister::CS {
                         self.cpu.ip += instruction_size;
                         return Ok(());
                     }
@@ -730,7 +730,7 @@ impl Emulator {
                         },
                     };
                     match direction {
-                        TwoOperandDirection::Register => {
+                        OperandDirection::Register => {
                             let operand_value = self.get_operand_value(&operand, &OperandSize::Word);
                             self.cpu.mutate_register(&RegisterEncoding::RegisterEncoding16(register), |r: &mut u16, _h: RegisterHalf| {
                                 match operand_value {
@@ -739,7 +739,7 @@ impl Emulator {
                                 };
                             });
                         },
-                        TwoOperandDirection::ModRM => {
+                        OperandDirection::ModRM => {
                             let register_value = self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(register));
                             match operand {
                                 Operand::Register(r) => {
