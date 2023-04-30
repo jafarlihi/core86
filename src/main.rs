@@ -173,6 +173,31 @@ impl CPU {
             RegisterEncoding::RegisterEncoding8(RegisterEncoding8::DL) => Value::Byte(self.dx.to_le_bytes()[0]),
         }
     }
+
+    fn write_register(&mut self, register: &RegisterEncoding, value: &Value) {
+        self.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
+            match h {
+                RegisterHalf::FULL => *r = match value {
+                    Value::Word(w) => *w,
+                    _ => unreachable!(),
+                },
+                RegisterHalf::HIGH => *r = match value {
+                    Value::Byte(b) => {
+                        let low = *r & 0x00FF;
+                        low | ((*b as u16) << 8)
+                    },
+                    _ => unreachable!(),
+                },
+                RegisterHalf::LOW => *r = match value {
+                    Value::Byte(b) => {
+                        let high = *r & 0xFF00;
+                        high | (*b as u16)
+                    },
+                    _ => unreachable!(),
+                },
+            }
+        });
+    }
 }
 
 #[derive(Debug)]
@@ -451,28 +476,7 @@ impl Emulator {
                         Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
                     },
                 };
-                self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
-                    match h {
-                        RegisterHalf::FULL => *r = match immediate {
-                            Value::Word(w) => w,
-                            _ => unreachable!(),
-                        },
-                        RegisterHalf::HIGH => *r = match immediate {
-                            Value::Byte(b) => {
-                                let low = *r & 0x00FF;
-                                low | ((b as u16) << 8)
-                            },
-                            _ => unreachable!(),
-                        },
-                        RegisterHalf::LOW => *r = match immediate {
-                            Value::Byte(b) => {
-                                let high = *r & 0xFF00;
-                                high | (b as u16)
-                            },
-                            _ => unreachable!(),
-                        },
-                    }
-                });
+                self.cpu.write_register(&register, &immediate);
             },
             _ => (),
         }
@@ -544,15 +548,7 @@ impl Emulator {
                         Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
                     },
                 };
-                let operand_value = match operand {
-                    Operand::Register(ref r) => self.cpu.read_register(&r),
-                    Operand::Memory(ref m) => {
-                        match operand_size {
-                            OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
-                            OperandSize::Word => Value::Word(self.read_word(m)),
-                        }
-                    }
-                };
+                let operand_value = self.get_operand_value(&operand, &operand_size);
                 let sum: Value = match register_value {
                     Value::Byte(b) => (b + match operand_value {
                         Value::Byte(b2) => b2,
@@ -565,36 +561,12 @@ impl Emulator {
                 };
                 match direction {
                     TwoOperandDirection::Register => {
-                        self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
-                            match sum {
-                                Value::Byte(b) => {
-                                    match h {
-                                        RegisterHalf::HIGH => *r = (*r & 0x00FF) | ((b as u16) << 8),
-                                        _ => *r = b as u16,
-                                    };
-                                },
-                                Value::Word(w) => {
-                                    *r = w
-                                },
-                            };
-                        });
+                        self.cpu.write_register(&register, &sum);
                     },
                     TwoOperandDirection::ModRM => {
                         match operand {
                             Operand::Register(r) => {
-                                self.cpu.mutate_register(&r, |r: &mut u16, h: RegisterHalf| {
-                                   match sum {
-                                       Value::Byte(b) => {
-                                            match h {
-                                                RegisterHalf::HIGH => *r = (*r & 0x00FF) | ((b as u16) << 8),
-                                                _ => *r = b as u16,
-                                            };
-                                       },
-                                       Value::Word(w) => {
-                                           *r = w
-                                       },
-                                   };
-                                });
+                                self.cpu.write_register(&r, &sum);
                             },
                             Operand::Memory(m) => {
                                 match sum {
@@ -632,46 +604,11 @@ impl Emulator {
                         Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
                     },
                 };
-                let operand_value = match operand {
-                    Operand::Register(ref r) => self.cpu.read_register(&r),
-                    Operand::Memory(ref m) => {
-                        match operand_size {
-                            OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
-                            OperandSize::Word => Value::Word(self.read_word(&m)),
-                        }
-                    },
-                };
+                let operand_value = self.get_operand_value(&operand, &operand_size);
                 let register_value = self.cpu.read_register(&register);
                 match direction {
                     TwoOperandDirection::Register => {
-                        self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
-                            match h {
-                                RegisterHalf::FULL => {
-                                    match operand_value {
-                                        Value::Word(w) => *r = w,
-                                        _ => unreachable!(),
-                                    };
-                                },
-                                RegisterHalf::LOW => {
-                                    match operand_value {
-                                        Value::Byte(b) => {
-                                            let high = *r & 0xFF00;
-                                            *r = high | (b as u16);
-                                        },
-                                        _ => unreachable!(),
-                                    }
-                                },
-                                RegisterHalf::HIGH => {
-                                    match operand_value {
-                                        Value::Byte(b) => {
-                                            let low = *r & 0x00FF;
-                                            *r = low | ((b as u16) << 8);
-                                        },
-                                        _ => unreachable!(),
-                                    };
-                                },
-                            }
-                        });
+                        self.cpu.write_register(&register, &operand_value);
                     },
                     TwoOperandDirection::ModRM => {
                         match register_value {
@@ -729,15 +666,7 @@ impl Emulator {
                                 }
                             },
                         };
-                        let operand_value = match operand {
-                            Operand::Register(ref r) => self.cpu.read_register(&r),
-                            Operand::Memory(ref m) => {
-                                match operand_size {
-                                    OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
-                                    OperandSize::Word => Value::Word(self.read_word(&m)),
-                                }
-                            },
-                        };
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
                         let sum: Value = match immediate {
                             Value::Byte(b) => (b + match operand_value {
                                 Value::Byte(b2) => b2,
@@ -752,20 +681,7 @@ impl Emulator {
                             Value::Byte(b) => {
                                 match operand {
                                     Operand::Register(r) => {
-                                        self.cpu.mutate_register(&r, |r: &mut u16, h: RegisterHalf| {
-                                            match h {
-                                                // TODO: Don't repeat this every time
-                                                RegisterHalf::LOW => {
-                                                    let high = *r & 0xFF00;
-                                                    *r = high | (b as u16);
-                                                },
-                                                RegisterHalf::HIGH => {
-                                                    let low = *r & 0x00FF;
-                                                    *r = low | ((b as u16) << 8);
-                                                },
-                                                _ => unreachable!(),
-                                            };
-                                        });
+                                        self.cpu.write_register(&r, &Value::Byte(b));
                                     },
                                     Operand::Memory(m) => {
                                         self.ram[m.0 as usize] = b;
@@ -815,10 +731,7 @@ impl Emulator {
                     };
                     match direction {
                         TwoOperandDirection::Register => {
-                            let operand_value = match operand {
-                                Operand::Register(ref r) => self.cpu.read_register(&r),
-                                Operand::Memory(ref m) => Value::Word(self.read_word(m)),
-                            };
+                            let operand_value = self.get_operand_value(&operand, &OperandSize::Word);
                             self.cpu.mutate_register(&RegisterEncoding::RegisterEncoding16(register), |r: &mut u16, _h: RegisterHalf| {
                                 match operand_value {
                                     Value::Word(w) => *r = w,
@@ -894,10 +807,7 @@ impl Emulator {
                                 Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
                             },
                         };
-                        let operand_value = match operand {
-                            Operand::Register(ref r) => self.cpu.read_register(&r),
-                            Operand::Memory(ref m) => Value::Word(self.read_word(m)),
-                        };
+                        let operand_value = self.get_operand_value(&operand, &OperandSize::Word);
                         match operand_value {
                             Value::Word(w) => self.push_word(w),
                             _ => unreachable!(),
@@ -936,28 +846,7 @@ impl Emulator {
                         };
                         match operand {
                             Operand::Register(r) => {
-                                self.cpu.mutate_register(&r, |r: &mut u16, h: RegisterHalf| {
-                                    match h {
-                                        RegisterHalf::FULL => *r = match immediate {
-                                            Value::Word(w) => w,
-                                            _ => unreachable!(),
-                                        },
-                                        RegisterHalf::HIGH => *r = match immediate {
-                                            Value::Byte(b) => {
-                                                let low = *r & 0x00FF;
-                                                low | ((b as u16) << 8)
-                                            },
-                                            _ => unreachable!(),
-                                        },
-                                        RegisterHalf::LOW => *r = match immediate {
-                                            Value::Byte(b) => {
-                                                let high = *r & 0xFF00;
-                                                high | (b as u16)
-                                            },
-                                            _ => unreachable!(),
-                                        },
-                                    }
-                                });
+                                self.cpu.write_register(&r, &immediate);
                             },
                             Operand::Memory(m) => {
                                 match immediate {
@@ -987,35 +876,7 @@ impl Emulator {
                     OperandSize::Byte => Value::Byte(self.ram[address.0 as usize]),
                     OperandSize::Word => Value::Word(self.read_word(&address)),
                 };
-                self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
-                    match h {
-                        // TODO: Don't repeat this every time
-                        RegisterHalf::FULL => {
-                            match value {
-                                Value::Word(w) => *r = w,
-                                _ => unreachable!(),
-                            };
-                        },
-                        RegisterHalf::LOW => {
-                            match value {
-                                Value::Byte(b) => {
-                                    let high = *r & 0xFF00;
-                                    *r = high | (b as u16);
-                                },
-                                _ => unreachable!(),
-                            }
-                        },
-                        RegisterHalf::HIGH => {
-                            match value {
-                                Value::Byte(b) => {
-                                    let low = *r & 0x00FF;
-                                    *r = low | ((b as u16) << 8);
-                                },
-                                _ => unreachable!(),
-                            };
-                        },
-                    }
-                });
+                self.cpu.write_register(&register, &value);
             },
             // MOV, AX/AL to mem
             0b1010001 => {
@@ -1053,58 +914,11 @@ impl Emulator {
                         Operand::Memory(self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override))
                     },
                 };
-                let operand_value = match operand {
-                    Operand::Register(ref r) => self.cpu.read_register(&r),
-                    Operand::Memory(ref m) => {
-                        match operand_size {
-                            OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
-                            OperandSize::Word => Value::Word(self.read_word(m)),
-                        }
-                    }
-                };
-                self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
-                    match h {
-                        RegisterHalf::FULL => {
-                            match operand_value {
-                                Value::Word(w) => *r = w,
-                                _ => unreachable!(),
-                            };
-                        },
-                        RegisterHalf::LOW => {
-                            match operand_value {
-                                Value::Byte(b) => {
-                                    let high = *r & 0xFF00;
-                                    *r = high | (b as u16);
-                                },
-                                _ => unreachable!(),
-                            }
-                        },
-                        RegisterHalf::HIGH => {
-                            match operand_value {
-                                Value::Byte(b) => {
-                                    let low = *r & 0x00FF;
-                                    *r = low | ((b as u16) << 8);
-                                },
-                                _ => unreachable!(),
-                            };
-                        },
-                    }
-                });
+                let operand_value = self.get_operand_value(&operand, &operand_size);
+                self.cpu.write_register(&register, &operand_value);
                 match operand {
                     Operand::Register(r) => {
-                        self.cpu.mutate_register(&r, |r: &mut u16, h: RegisterHalf| {
-                           match register_value {
-                               Value::Byte(b) => {
-                                    match h {
-                                        RegisterHalf::HIGH => *r = (*r & 0x00FF) | ((b as u16) << 8),
-                                        _ => *r = (*r & 0xFF00) | (b as u16),
-                                    };
-                               },
-                               Value::Word(w) => {
-                                   *r = w
-                               },
-                           };
-                        });
+                        self.cpu.write_register(&r, &register_value);
                     },
                     Operand::Memory(m) => {
                         match register_value {
@@ -1278,6 +1092,18 @@ impl Emulator {
             },
         };
         self.cpu.sp += 2;
+    }
+
+    fn get_operand_value(&self, operand: &Operand, operand_size: &OperandSize) -> Value {
+        match operand {
+            Operand::Register(ref r) => self.cpu.read_register(&r),
+            Operand::Memory(ref m) => {
+                match operand_size {
+                    OperandSize::Byte => Value::Byte(self.ram[m.0 as usize]),
+                    OperandSize::Word => Value::Word(self.read_word(m)),
+                }
+            }
+        }
     }
 
     fn push_word(&mut self, value: u16) {
