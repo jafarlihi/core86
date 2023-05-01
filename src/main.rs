@@ -1089,6 +1089,15 @@ impl Emulator {
                 _ => unreachable!(),
             };
         }
+        // PUSHF
+        if self.ram[address.0 as usize] == 0b10011100 {
+            self.push_word(self.cpu.flags);
+        }
+        // POPF
+        if self.ram[address.0 as usize] == 0b10011101 {
+            let value = self.pop_word_and_return();
+            self.cpu.flags = value;
+        }
         self.cpu.ip += instruction_size;
         Ok(())
     }
@@ -1232,8 +1241,7 @@ impl Emulator {
     }
 
     fn pop_word(&mut self, operand: &Operand) {
-        let address = U20::new(self.cpu.ss, self.cpu.sp);
-        let value = self.ram[address.0 as usize] as u16 | (self.ram[address.0 as usize + 1] as u16) << 8;
+        let value = self.pop_word_and_return();
         match operand {
             Operand::Register(r) => {
                 self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
@@ -1244,7 +1252,13 @@ impl Emulator {
                 self.write_word(&m, value);
             },
         };
+    }
+
+    fn pop_word_and_return(&mut self) -> u16 {
+        let address = U20::new(self.cpu.ss, self.cpu.sp);
+        let value = self.ram[address.0 as usize] as u16 | (self.ram[address.0 as usize + 1] as u16) << 8;
         self.cpu.sp += 2;
+        value
     }
 
     fn get_operand_value(&self, operand: &Operand, operand_size: &OperandSize) -> Value {
@@ -2150,6 +2164,57 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.flags, 0b0000000010010010);
+            }
+        }
+    }
+
+    #[test]
+    fn test_pushf() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // pushf
+        disk[0] = 0b10011100;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.sp = 2;
+        emulator.cpu.flags = 0xFFFF;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.ram[0], 0xFF);
+                assert_eq!(emulator.ram[1], 0xFF);
+            }
+        }
+    }
+
+    #[test]
+    fn test_popf() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // popf
+        disk[0] = 0b10011101;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.ram[0] = 0xFF;
+        emulator.ram[1] = 0xFF;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.flags, 0xFFFF);
             }
         }
     }
