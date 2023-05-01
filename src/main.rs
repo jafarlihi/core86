@@ -513,6 +513,7 @@ impl Emulator {
         }
     }
 
+    // TODO: Dispatch table?
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut address = U20::new(self.cpu.cs, self.cpu.ip);
         if self.ram[address.0 as usize] == 0b11110100 {
@@ -1070,6 +1071,23 @@ impl Emulator {
             let value = self.read_dword(&address);
             self.cpu.write_register(&register, &Value::Word(value as u16));
             self.cpu.write_register(&segment, &Value::Word((value >> 16) as u16));
+        }
+        // LAHF
+        if self.ram[address.0 as usize] == 0b10011111 {
+            let value = Value::Byte(((self.cpu.flags as u8) & 0b11010101) | 0b00000010);
+            self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &value);
+        }
+        // SAHF
+        if self.ram[address.0 as usize] == 0b10011110 {
+            let mut value = self.cpu.read_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH));
+            value = match value {
+                Value::Byte(b) => Value::Byte(b | 0b00000010),
+                _ => unreachable!(),
+            };
+            match value {
+                Value::Byte(b) => self.cpu.flags = (self.cpu.flags & 0xFF00) | b as u16,
+                _ => unreachable!(),
+            };
         }
         self.cpu.ip += instruction_size;
         Ok(())
@@ -2084,6 +2102,54 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.cpu.ds, 0x87A5);
                 assert_eq!(emulator.cpu.si, 0x3C1F);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lahf() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // lahf
+        disk[0] = 0b10011111;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.flags = Flags::SF.bits() | Flags::AF.bits();
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ax, 0b1001001000000000);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sahf() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // sahf
+        disk[0] = 0b10011110;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ax = 0b1001001000000000;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.flags, 0b0000000010010010);
             }
         }
     }
