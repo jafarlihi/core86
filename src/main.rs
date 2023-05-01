@@ -385,17 +385,13 @@ impl Emulator {
         }
     }
 
-    fn calculate_address_by_rm(&self, rm: RM, displacement: u16, segment_override: &Option<SegmentRegister>) -> U20 {
+    fn calculate_offset_by_rm(&self, rm: RM, displacement: u16) -> u16 {
         let mut offset: u16 = displacement;
-        let mut use_ss = false;
         offset = offset + match rm {
             RM::BaseIndex(bi) => {
                 bi.0.map_or(
                     0,
                     |r| {
-                        if r == RegisterEncoding16::BP {
-                            use_ss = true;
-                        }
                         match self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(r)) {
                             Value::Word(w) => w,
                             _ => unreachable!(),
@@ -411,6 +407,26 @@ impl Emulator {
                     }
                 )
             }
+            _ => unreachable!(),
+        };
+        offset
+    }
+
+    fn calculate_address_by_rm(&self, rm: RM, displacement: u16, segment_override: &Option<SegmentRegister>) -> U20 {
+        let offset: u16 = self.calculate_offset_by_rm(rm, displacement);
+        let use_ss = match rm {
+            RM::BaseIndex(bi) => {
+                match bi.0 {
+                    Some(r) => {
+                        if r == RegisterEncoding16::BP {
+                            true
+                        } else {
+                            false
+                        }
+                    },
+                    _ => false,
+                }
+            },
             _ => unreachable!(),
         };
         let segment = segment_override.as_ref().unwrap_or(if use_ss { &SegmentRegister::SS } else { &SegmentRegister::DS });
@@ -464,6 +480,34 @@ impl Emulator {
                     SegmentRegister::SS => self.cpu.ss,
                 };
                 U20::new(segment, offset)
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn calculate_offset_by_modrm(&self, instruction_address: &U20, modrmmod: ModRMMod, rm: RM) -> u16 {
+        match modrmmod {
+            ModRMMod::OneByteDisplacement => {
+                let displacement = self.ram[instruction_address.0 as usize + 2] as u16;
+                self.calculate_offset_by_rm(rm, displacement)
+            },
+            ModRMMod::TwoByteDisplacement => {
+                let displacement = self.ram[
+                    instruction_address.0 as usize + 2
+                ] as u16 | (self.ram[
+                    instruction_address.0 as usize + 3]
+                as u16) << 8;
+                self.calculate_offset_by_rm(rm, displacement)
+            },
+            ModRMMod::NoDisplacement => {
+                self.calculate_offset_by_rm(rm, 0)
+            },
+            ModRMMod::Direct => {
+                self.ram[
+                    instruction_address.0 as usize + 2
+                ] as u16 | (self.ram[
+                    instruction_address.0 as usize + 3
+                ] as u16) << 8
             },
             _ => unreachable!(),
         }
@@ -624,6 +668,7 @@ impl Emulator {
                 let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                 let register: RegisterEncoding = match operand_size {
                     OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
                     OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
@@ -727,6 +772,7 @@ impl Emulator {
                     instruction_size += 1;
                     let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
                     let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
+                    instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                     let register: SegmentRegister = modrm.1.try_into().unwrap();
                     if direction == OperandDirection::Register && register == SegmentRegister::CS {
                         self.cpu.ip += instruction_size;
@@ -883,6 +929,7 @@ impl Emulator {
                 instruction_size += 1;
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                 let register: RegisterEncoding = match operand_size {
                     OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
                     OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
@@ -934,7 +981,7 @@ impl Emulator {
                 self.cpu.write_register(&register, &value);
             },
             // OUT, direct
-            0b1110010 => {
+            0b1110011 => {
                 instruction_size += 1;
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let port = self.ram[address.0 as usize + 1];
@@ -946,7 +993,7 @@ impl Emulator {
                 self.write_port(port as u16, value);
             },
             // OUT, indirect
-            0b1110110 => {
+            0b1110111 => {
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let port = self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX));
                 let register = match operand_size {
@@ -967,6 +1014,7 @@ impl Emulator {
             match modrm.1 {
                 // POP, modr/m
                 0b000 => {
+                    instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                     let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                     self.pop_word(&operand);
                 },
@@ -980,6 +1028,18 @@ impl Emulator {
             let table_address = U20::new(self.cpu.ds, table_offset + register_value as u16);
             let value = Value::Byte(self.ram[table_address.0 as usize]);
             self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL), &value);
+        }
+        // LEA, modr/m
+        if self.ram[address.0 as usize] == 0b10001101 {
+            instruction_size += 1;
+            let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
+            if modrm.0 == ModRMMod::Register {
+                return Err("Invalid instruction".try_into().unwrap());
+            }
+            instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+            let address = self.calculate_offset_by_modrm(&address, modrm.0, modrm.2);
+            let register = RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap());
+            self.cpu.write_register(&register, &Value::Word(address));
         }
         self.cpu.ip += instruction_size;
         Ok(())
@@ -1814,6 +1874,117 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.cpu.bp, 0xFFFF);
                 assert_eq!(emulator.cpu.ax, 0xAAAA);
+            }
+        }
+    }
+
+    #[test]
+    fn test_xlat() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // xlat
+        disk[0] = 0b11010111;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ax = 0b0000000000000010;
+        emulator.cpu.bx = 0x00AA;
+        emulator.ram[0x00AA] = 0xFF;
+        emulator.ram[0x00AB] = 0xFF;
+        emulator.ram[0x00AC] = 0xFA;
+        emulator.ram[0x00AD] = 0xFF;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ax, 0x00FA);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lea_direct() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // lea bp,[0xf0f0]
+        disk[0] = 0b10001101;
+        disk[1] = 0b00101110;
+        disk[2] = 0b11110000;
+        disk[3] = 0b11110000;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 0xF0F0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lea() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // lea bp,[si+0x7070]
+        disk[0] = 0x8D;
+        disk[1] = 0xAC;
+        disk[2] = 0x70;
+        disk[3] = 0x70;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x01;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 0x7071);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lea_negative_displacement() {
+        // TODO: Fix negative displacement
+        // TODO: Fix displacement overflow
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // lea bp,[si-0xf10]
+        disk[0] = 0x8D;
+        disk[1] = 0xAC;
+        disk[2] = 0xF0;
+        disk[3] = 0xF0;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x01;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 0x7071);
             }
         }
     }
