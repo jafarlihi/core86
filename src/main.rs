@@ -259,7 +259,7 @@ struct Emulator {
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, Copy, Clone)]
 #[repr(u8)]
-enum ModRMMod {
+enum Mod {
     NoDisplacement = 0b00,
     OneByteDisplacement = 0b01,
     TwoByteDisplacement = 0b10,
@@ -341,11 +341,11 @@ impl Emulator {
         }
     }
 
-    fn parse_modrm(operand_size: &OperandSize, modrm: &u8) -> (ModRMMod, u8, RM) {
-        let mut m: ModRMMod = (modrm >> 6).try_into().unwrap();
+    fn parse_modrm(operand_size: &OperandSize, modrm: &u8) -> (Mod, u8, RM) {
+        let mut m: Mod = (modrm >> 6).try_into().unwrap();
         let opcode = (modrm & 0b00111000) >> 3;
         let rm = match m {
-            ModRMMod::Register => {
+            Mod::Register => {
                 match operand_size {
                     OperandSize::Byte => RM::Register(RegisterEncoding::RegisterEncoding8(RegisterEncoding8::try_from(modrm & 0b00000111).unwrap())),
                     OperandSize::Word => RM::Register(RegisterEncoding::RegisterEncoding16(RegisterEncoding16::try_from(modrm & 0b00000111).unwrap())),
@@ -365,15 +365,15 @@ impl Emulator {
                 }
             }
         };
-        if modrm & 0b00000111 == 0b00000110 && m == ModRMMod::NoDisplacement {
-            m = ModRMMod::Direct;
+        if modrm & 0b00000111 == 0b00000110 && m == Mod::NoDisplacement {
+            m = Mod::Direct;
         }
         (m, opcode, rm)
     }
 
-    fn get_operand_by_modrm(&self, address: &U20, modrmmod: &ModRMMod, rm: &RM, segment_override: &Option<SegmentRegister>) -> Operand {
+    fn get_operand_by_modrm(&self, address: &U20, modrmmod: &Mod, rm: &RM, segment_override: &Option<SegmentRegister>) -> Operand {
         match modrmmod {
-            ModRMMod::Register => {
+            Mod::Register => {
                 match rm {
                     RM::Register(e) => Operand::Register(*e),
                     _ => unreachable!(),
@@ -439,23 +439,23 @@ impl Emulator {
         U20::new(segment, offset)
     }
 
-    fn get_instruction_size_extension_by_mod(modrmmod: &ModRMMod) -> u16 {
+    fn get_instruction_size_extension_by_mod(modrmmod: &Mod) -> u16 {
         match modrmmod {
-            ModRMMod::Register => 0,
-            ModRMMod::NoDisplacement => 0,
-            ModRMMod::OneByteDisplacement => 1,
-            ModRMMod::TwoByteDisplacement => 2,
-            ModRMMod::Direct => 2,
+            Mod::Register => 0,
+            Mod::NoDisplacement => 0,
+            Mod::OneByteDisplacement => 1,
+            Mod::TwoByteDisplacement => 2,
+            Mod::Direct => 2,
         }
     }
 
-    fn calculate_address_by_modrm(&self, instruction_address: &U20, modrmmod: ModRMMod, rm: RM, segment_override: &Option<SegmentRegister>) -> U20 {
+    fn calculate_address_by_modrm(&self, instruction_address: &U20, modrmmod: Mod, rm: RM, segment_override: &Option<SegmentRegister>) -> U20 {
         match modrmmod {
-            ModRMMod::OneByteDisplacement => {
+            Mod::OneByteDisplacement => {
                 let displacement = self.ram[instruction_address.0 as usize + 2] as u16;
                 self.calculate_address_by_rm(rm, displacement, segment_override)
             },
-            ModRMMod::TwoByteDisplacement => {
+            Mod::TwoByteDisplacement => {
                 let displacement = self.ram[
                     instruction_address.0 as usize + 2
                 ] as u16 | (self.ram[
@@ -463,10 +463,10 @@ impl Emulator {
                 as u16) << 8;
                 self.calculate_address_by_rm(rm, displacement, segment_override)
             },
-            ModRMMod::NoDisplacement => {
+            Mod::NoDisplacement => {
                 self.calculate_address_by_rm(rm, 0, segment_override)
             },
-            ModRMMod::Direct => {
+            Mod::Direct => {
                 let offset = self.ram[
                     instruction_address.0 as usize + 2
                 ] as u16 | (self.ram[
@@ -485,13 +485,13 @@ impl Emulator {
         }
     }
 
-    fn calculate_offset_by_modrm(&self, instruction_address: &U20, modrmmod: ModRMMod, rm: RM) -> u16 {
+    fn calculate_offset_by_modrm(&self, instruction_address: &U20, modrmmod: Mod, rm: RM) -> u16 {
         match modrmmod {
-            ModRMMod::OneByteDisplacement => {
+            Mod::OneByteDisplacement => {
                 let displacement = self.ram[instruction_address.0 as usize + 2] as u16;
                 self.calculate_offset_by_rm(rm, displacement)
             },
-            ModRMMod::TwoByteDisplacement => {
+            Mod::TwoByteDisplacement => {
                 let displacement = self.ram[
                     instruction_address.0 as usize + 2
                 ] as u16 | (self.ram[
@@ -499,10 +499,10 @@ impl Emulator {
                 as u16) << 8;
                 self.calculate_offset_by_rm(rm, displacement)
             },
-            ModRMMod::NoDisplacement => {
+            Mod::NoDisplacement => {
                 self.calculate_offset_by_rm(rm, 0)
             },
-            ModRMMod::Direct => {
+            Mod::Direct => {
                 self.ram[
                     instruction_address.0 as usize + 2
                 ] as u16 | (self.ram[
@@ -824,7 +824,7 @@ impl Emulator {
                     // INC, modr/m
                     0b00000000 => {
                         let (before, after) = match modrm.0 {
-                            ModRMMod::Register => {
+                            Mod::Register => {
                                 match modrm.2 {
                                     RM::Register(e) => {
                                         let before = self.cpu.read_register(&e);
@@ -1033,13 +1033,43 @@ impl Emulator {
         if self.ram[address.0 as usize] == 0b10001101 {
             instruction_size += 1;
             let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
-            if modrm.0 == ModRMMod::Register {
+            if modrm.0 == Mod::Register {
                 return Err("Invalid instruction".try_into().unwrap());
             }
             instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
             let address = self.calculate_offset_by_modrm(&address, modrm.0, modrm.2);
             let register = RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap());
             self.cpu.write_register(&register, &Value::Word(address));
+        }
+        // LDS, modr/m
+        if self.ram[address.0 as usize] == 0b11000101 {
+            instruction_size += 1;
+            let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
+            if modrm.0 == Mod::Register {
+                return Err("Invalid instruction".try_into().unwrap());
+            }
+            instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+            let address = self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override);
+            let register = RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap());
+            let segment = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DS);
+            let value = self.read_dword(&address);
+            self.cpu.write_register(&register, &Value::Word(value as u16));
+            self.cpu.write_register(&segment, &Value::Word((value >> 16) as u16));
+        }
+        // LES, modr/m
+        if self.ram[address.0 as usize] == 0b11000100 {
+            instruction_size += 1;
+            let modrm = Self::parse_modrm(&OperandSize::Word, &self.ram[address.0 as usize + 1]);
+            if modrm.0 == Mod::Register {
+                return Err("Invalid instruction".try_into().unwrap());
+            }
+            instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+            let address = self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override);
+            let register = RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap());
+            let segment = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::ES);
+            let value = self.read_dword(&address);
+            self.cpu.write_register(&register, &Value::Word(value as u16));
+            self.cpu.write_register(&segment, &Value::Word((value >> 16) as u16));
         }
         self.cpu.ip += instruction_size;
         Ok(())
@@ -1170,8 +1200,12 @@ impl Emulator {
     }
 
     fn read_word(&self, m: &U20) -> u16 {
-        // TODO: Is this the correct order?
         self.ram[m.0 as usize] as u16 | ((self.ram[(m.0 + 1) as usize] as u16) << 8)
+    }
+
+    fn read_dword(&self, m: &U20) -> u32 {
+        let second_word_address = U20::new_from_address(m.0 + 2);
+        self.read_word(m) as u32 | ((self.read_word(&second_word_address) as u32) << 16)
     }
 
     fn write_word(&mut self, m: &U20, w: u16) {
@@ -1237,11 +1271,16 @@ impl Emulator {
     }
 }
 
+#[derive(Debug)]
 struct U20(u32);
 
 impl U20 {
     fn new(segment: u16, offset: u16) -> Self {
         U20(u32::from(segment) * 16 + u32::from(offset))
+    }
+
+    fn new_from_address(address: u32) -> Self {
+        U20(address)
     }
 }
 
@@ -1962,8 +2001,6 @@ mod tests {
 
     #[test]
     fn test_lea_negative_displacement() {
-        // TODO: Fix negative displacement
-        // TODO: Fix displacement overflow
         let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
@@ -1978,13 +2015,75 @@ mod tests {
         disk[4] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        emulator.cpu.si = 0x01;
+        emulator.cpu.si = 0xFFFF;
         let run = emulator.run();
 
         match run {
             Ok(()) => (),
             Err(_error) => {
-                assert_eq!(emulator.cpu.bp, 0x7071);
+                assert_eq!(emulator.cpu.bp, 0xF0EF);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lea_negative_displacement_overflow() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // lea bp,[si-0xf10]
+        disk[0] = 0x8D;
+        disk[1] = 0xAC;
+        disk[2] = 0xF0;
+        disk[3] = 0xF0;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x0F11;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 0x0001);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lds() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // lds si,[bp+di+0x5555]
+        disk[0] = 0xC5;
+        disk[1] = 0xB3;
+        disk[2] = 0x55;
+        disk[3] = 0x55;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x0001;
+        emulator.cpu.bp = 0x0001;
+        emulator.cpu.di = 0x0001;
+        let address = U20::new(emulator.cpu.ds, emulator.cpu.bp + emulator.cpu.di + 0x5555);
+        emulator.ram[address.0 as usize] = 0x1F;
+        emulator.ram[address.0 as usize + 1] = 0x3C;
+        emulator.ram[address.0 as usize + 2] = 0xA5;
+        emulator.ram[address.0 as usize + 3] = 0x87;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ds, 0x87A5);
+                assert_eq!(emulator.cpu.si, 0x3C1F);
             }
         }
     }
