@@ -579,6 +579,14 @@ impl Emulator {
                 let after = self.cpu.read_register(&register);
                 self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
             },
+            // DEC, register-mode
+            0b01001 => {
+                let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
+                let before = self.cpu.read_register(&register);
+                self.dec_register(&register);
+                let after = self.cpu.read_register(&register);
+                self.update_flags("ZSOPA", Some(before), Some(after), Some(false))
+            },
             // PUSH, register-mode
             0b01010 => {
                 let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
@@ -1136,7 +1144,7 @@ impl Emulator {
                 instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                 match modrm.1 {
                     // INC, modr/m
-                    0b00000000 => {
+                    0b000 => {
                         let (before, after) = match modrm.0 {
                             Mod::Register => {
                                 match modrm.2 {
@@ -1158,6 +1166,30 @@ impl Emulator {
                             },
                         };
                         self.update_flags("ZSOPA", Some(before), Some(after), Some(true))
+                    },
+                    // DEC, modr/m
+                    0b001 => {
+                        let (before, after) = match modrm.0 {
+                            Mod::Register => {
+                                match modrm.2 {
+                                    RM::Register(e) => {
+                                        let before = self.cpu.read_register(&e);
+                                        self.dec_register(&e);
+                                        let after = self.cpu.read_register(&e);
+                                        (before, after)
+                                    }
+                                    _ => unreachable!(),
+                                }
+                            },
+                            _ => {
+                                let address = self.calculate_address_by_modrm(&address, modrm.0, modrm.2, &segment_override);
+                                let before = self.read_word(&address);
+                                self.write_word(&address, before - 1);
+                                let after = self.read_word(&address);
+                                (Value::Word(before), Value::Word(after))
+                            },
+                        };
+                        self.update_flags("ZSOPA", Some(before), Some(after), Some(false))
                     },
                     // PUSH, modr/m
                     0b00000110 => {
@@ -1749,6 +1781,28 @@ impl Emulator {
                 RegisterHalf::LOW => {
                     let mut low = *r & 0b0000000011111111;
                     low += 1;
+                    low = low & 0b0000000011111111;
+                    let high = *r & 0b1111111100000000;
+                    *r = high | low;
+                },
+            }
+        });
+    }
+
+    fn dec_register(&mut self, register: &RegisterEncoding) {
+        self.cpu.mutate_register(&register, |r: &mut u16, h: RegisterHalf| {
+            match h {
+                RegisterHalf::FULL => *r = *r - 1,
+                RegisterHalf::HIGH => {
+                    let mut high = *r >> 8;
+                    high -= 1;
+                    high = high << 8 & 0b1111111100000000;
+                    let low = *r & 0b0000000011111111;
+                    *r = high | low;
+                },
+                RegisterHalf::LOW => {
+                    let mut low = *r & 0b0000000011111111;
+                    low -= 1;
                     low = low & 0b0000000011111111;
                     let high = *r & 0b1111111100000000;
                     *r = high | low;
