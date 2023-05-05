@@ -1007,6 +1007,41 @@ impl Emulator {
                     _ => unreachable!(),
                 };
             },
+            // ADD, immediate with AX/AL
+            0b0000010 => {
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => {
+                        RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL)
+                    },
+                    OperandSize::Word => {
+                        RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX)
+                    },
+                };
+                let register_value = self.cpu.read_register(&register);
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                let sum: Value = match register_value {
+                    Value::Byte(b) => (b + match immediate {
+                        Value::Byte(b2) => b2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                    Value::Word(w) => (w + match immediate {
+                        Value::Word(w2) => w2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                };
+                self.cpu.write_register(&register, &sum);
+                self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(true));
+            },
             _ => (),
         }
         if self.ram[address.0 as usize] == 0b10001111 {
@@ -2218,4 +2253,30 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_add_immediate_accumulator() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // add al,0xaa
+        disk[0] = 0b00000100;
+        disk[1] = 0b10101010;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ax = 0x0011;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ax, 0x00BB);
+            }
+        }
+    }
+
 }
