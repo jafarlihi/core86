@@ -712,6 +712,103 @@ impl Emulator {
                 }
                 self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
             },
+            // SUB, modr/m
+            0b001010 => {
+                instruction_size += 1;
+                let direction: OperandDirection = ((self.ram[address.0 as usize] & 0b00000010) >> 1).try_into().unwrap();
+                let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let register_value = self.cpu.read_register(&register);
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                let operand_value = self.get_operand_value(&operand, &operand_size);
+                let sum: Value = match operand_value {
+                    Value::Byte(b) => (b - match register_value {
+                        Value::Byte(b2) => b2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                    Value::Word(w) => (w - match register_value {
+                        Value::Word(w2) => w2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                };
+                match direction {
+                    OperandDirection::Register => {
+                        self.cpu.write_register(&register, &sum);
+                    },
+                    OperandDirection::ModRM => {
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &sum);
+                            },
+                            Operand::Memory(m) => {
+                                match sum {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                    },
+                }
+                self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+            },
+            // SBB, modr/m
+            0b000110 => {
+                instruction_size += 1;
+                let direction: OperandDirection = ((self.ram[address.0 as usize] & 0b00000010) >> 1).try_into().unwrap();
+                let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let register_value = self.cpu.read_register(&register);
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                let operand_value = self.get_operand_value(&operand, &operand_size);
+                let cf = (self.cpu.flags & Flags::CF.bits()).count_ones();
+                let sum: Value = match operand_value {
+                    Value::Byte(b) => (b - cf as u8 - match register_value {
+                        Value::Byte(b2) => b2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                    Value::Word(w) => (w - cf as u16 - match register_value {
+                        Value::Word(w2) => w2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                };
+                match direction {
+                    OperandDirection::Register => {
+                        self.cpu.write_register(&register, &sum);
+                    },
+                    OperandDirection::ModRM => {
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &sum);
+                            },
+                            Operand::Memory(m) => {
+                                match sum {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                    },
+                }
+                self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+            },
             // MOV, mod/rm
             0b00100010 => {
                 instruction_size += 1;
@@ -839,6 +936,117 @@ impl Emulator {
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
                             Value::Word(w) => (w + cf as u16 + match operand_value {
+                                Value::Word(w2) => w2,
+                                _ => unreachable!(),
+                            }).try_into().unwrap(),
+                        };
+                        match sum {
+                            Value::Byte(b) => {
+                                match operand {
+                                    Operand::Register(r) => {
+                                        self.cpu.write_register(&r, &Value::Byte(b));
+                                    },
+                                    Operand::Memory(m) => {
+                                        self.ram[m.0 as usize] = b;
+                                    },
+                                };
+                            },
+                            Value::Word(w) => {
+                                match operand {
+                                    Operand::Register(r) => {
+                                        self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
+                                            *r = w;
+                                        });
+                                    },
+                                    Operand::Memory(m) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                        self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+                    },
+                    // SUB, modr/m, immediate
+                    0b101 => {
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let immediate = match operand_size {
+                            OperandSize::Byte => {
+                                instruction_size += 1;
+                                Value::Byte(self.ram[address.0 as usize + 1])
+                            },
+                            OperandSize::Word => {
+                                if !sign_extend {
+                                    instruction_size += 2;
+                                    Value::Word((self.ram[address.0 as usize + 3] as u16) << 8 | self.ram[address.0 as usize + 2] as u16)
+                                } else {
+                                    instruction_size += 1;
+                                    Value::Word(crate::sign_extend(self.ram[address.0 as usize + 2]))
+                                }
+                            },
+                        };
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let sum: Value = match immediate {
+                            Value::Byte(b) => (b - match operand_value {
+                                Value::Byte(b2) => b2,
+                                _ => unreachable!(),
+                            }).try_into().unwrap(),
+                            Value::Word(w) => (w - match operand_value {
+                                Value::Word(w2) => w2,
+                                _ => unreachable!(),
+                            }).try_into().unwrap(),
+                        };
+                        match sum {
+                            Value::Byte(b) => {
+                                match operand {
+                                    Operand::Register(r) => {
+                                        self.cpu.write_register(&r, &Value::Byte(b));
+                                    },
+                                    Operand::Memory(m) => {
+                                        self.ram[m.0 as usize] = b;
+                                    },
+                                };
+                            },
+                            Value::Word(w) => {
+                                match operand {
+                                    Operand::Register(r) => {
+                                        self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
+                                            *r = w;
+                                        });
+                                    },
+                                    Operand::Memory(m) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                        self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+                    },
+                    // SBB, modr/m, immediate
+                    0b011 => {
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let immediate = match operand_size {
+                            OperandSize::Byte => {
+                                instruction_size += 1;
+                                Value::Byte(self.ram[address.0 as usize + 1])
+                            },
+                            OperandSize::Word => {
+                                if !sign_extend {
+                                    instruction_size += 2;
+                                    Value::Word((self.ram[address.0 as usize + 3] as u16) << 8 | self.ram[address.0 as usize + 2] as u16)
+                                } else {
+                                    instruction_size += 1;
+                                    Value::Word(crate::sign_extend(self.ram[address.0 as usize + 2]))
+                                }
+                            },
+                        };
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let cf = (self.cpu.flags & Flags::CF.bits()).count_ones();
+                        let sum: Value = match immediate {
+                            Value::Byte(b) => (b - cf as u8 - match operand_value {
+                                Value::Byte(b2) => b2,
+                                _ => unreachable!(),
+                            }).try_into().unwrap(),
+                            Value::Word(w) => (w - cf as u16 - match operand_value {
                                 Value::Word(w2) => w2,
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
@@ -1176,6 +1384,77 @@ impl Emulator {
                         _ => unreachable!(),
                     }).try_into().unwrap(),
                     Value::Word(w) => (w + cf as u16 + match immediate {
+                        Value::Word(w2) => w2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                };
+                self.cpu.write_register(&register, &sum);
+                self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(true));
+            },
+            // SUB, immediate with AX/AL
+            0b0010110 => {
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => {
+                        RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL)
+                    },
+                    OperandSize::Word => {
+                        RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX)
+                    },
+                };
+                let register_value = self.cpu.read_register(&register);
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                let sum: Value = match immediate {
+                    Value::Byte(b) => (b - match register_value {
+                        Value::Byte(b2) => b2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                    Value::Word(w) => (w - match register_value {
+                        Value::Word(w2) => w2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                };
+                self.cpu.write_register(&register, &sum);
+                self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(true));
+            },
+            // SBB, immediate with AX/AL
+            0b0001110 => {
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => {
+                        RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL)
+                    },
+                    OperandSize::Word => {
+                        RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX)
+                    },
+                };
+                let register_value = self.cpu.read_register(&register);
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                let cf = (self.cpu.flags & Flags::CF.bits()).count_ones();
+                let sum: Value = match immediate {
+                    Value::Byte(b) => (b - cf as u8 - match register_value {
+                        Value::Byte(b2) => b2,
+                        _ => unreachable!(),
+                    }).try_into().unwrap(),
+                    Value::Word(w) => (w - cf as u16 - match register_value {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
