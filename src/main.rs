@@ -766,7 +766,7 @@ impl Emulator {
                         };
                     },
                 }
-                self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+                self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
             },
             // SBB, modr/m
             0b000110 => {
@@ -815,7 +815,7 @@ impl Emulator {
                         };
                     },
                 }
-                self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+                self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
             },
             // MOV, mod/rm
             0b00100010 => {
@@ -1027,7 +1027,7 @@ impl Emulator {
                                 };
                             },
                         };
-                        self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+                        self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
                     },
                     // SBB, modr/m, immediate
                     0b011 => {
@@ -1083,7 +1083,7 @@ impl Emulator {
                                 };
                             },
                         };
-                        self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
+                        self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
                     },
                     _ => (),
                 }
@@ -1456,7 +1456,7 @@ impl Emulator {
                     }).try_into().unwrap(),
                 };
                 self.cpu.write_register(&register, &sum);
-                self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(true));
+                self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(false));
             },
             // SBB, immediate with AX/AL
             0b0001110 => {
@@ -1492,7 +1492,7 @@ impl Emulator {
                     }).try_into().unwrap(),
                 };
                 self.cpu.write_register(&register, &sum);
-                self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(true));
+                self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(false));
             },
             _ => (),
         }
