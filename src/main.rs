@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::ops::Neg;
 use bitflags::bitflags;
 use num_enum::TryFromPrimitive;
 use intbits::Bits;
@@ -1494,6 +1495,44 @@ impl Emulator {
                 self.cpu.write_register(&register, &sum);
                 self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(false));
             },
+            0b1111011 => {
+                instruction_size += 1;
+                let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                match modrm.1 {
+                    // NEG, modr/m
+                    0b011 => {
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let neg = match operand_value {
+                            Value::Byte(b) => Value::Byte((b as i8).neg() as u8),
+                            Value::Word(w) => Value::Word((w as i16).neg() as u16),
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &neg);
+                            },
+                            Operand::Memory(m) => {
+                                match neg {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                        let zero = match operand_size {
+                            OperandSize::Byte => Value::Byte(0u8),
+                            OperandSize::Word => Value::Word(0u16),
+                        };
+                        self.update_flags("CZSOPA", Some(zero), Some(neg), Some(false));
+                    },
+                    _ => (),
+                };
+            },
             _ => (),
         }
         if self.ram[address.0 as usize] == 0b10001111 {
@@ -2753,4 +2792,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_neg_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // neg bx
+        disk[0] = 0b11110111;
+        disk[1] = 0b11011011;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.bx = 0xFFFF;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bx, 1);
+            }
+        }
+    }
 }
