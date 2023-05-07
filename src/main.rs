@@ -1804,7 +1804,7 @@ impl Emulator {
         if msb_before != msb_after {
             self.cpu.flags |= Flags::CF.bits();
         } else {
-            self.cpu.flags |= !Flags::CF.bits();
+            self.cpu.flags &= !Flags::CF.bits();
         }
     }
 
@@ -1817,7 +1817,7 @@ impl Emulator {
         if parity  {
             self.cpu.flags |= Flags::PF.bits();
         } else {
-            self.cpu.flags |= !Flags::PF.bits();
+            self.cpu.flags &= !Flags::PF.bits();
         }
     }
 
@@ -1833,7 +1833,7 @@ impl Emulator {
         if third_bit_before != third_bit_after {
             self.cpu.flags |= Flags::AF.bits();
         } else {
-            self.cpu.flags |= !Flags::AF.bits();
+            self.cpu.flags &= !Flags::AF.bits();
         }
     }
 
@@ -1845,7 +1845,7 @@ impl Emulator {
         if is_zero {
             self.cpu.flags |= Flags::ZF.bits();
         } else {
-            self.cpu.flags |= !Flags::ZF.bits();
+            self.cpu.flags &= !Flags::ZF.bits();
         }
     }
 
@@ -1857,7 +1857,7 @@ impl Emulator {
         if sign {
             self.cpu.flags |= Flags::SF.bits();
         } else {
-            self.cpu.flags |= !Flags::SF.bits();
+            self.cpu.flags &= !Flags::SF.bits();
         }
     }
 
@@ -1875,7 +1875,7 @@ impl Emulator {
         if overflow {
             self.cpu.flags |= Flags::OF.bits();
         } else {
-            self.cpu.flags |= !Flags::OF.bits();
+            self.cpu.flags &= !Flags::OF.bits();
         }
     }
 
@@ -2940,6 +2940,35 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.bx, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cmp_register_to_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // cmp di,bp
+        disk[0] = 0b00111001;
+        disk[1] = 0b11101111;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.di = 0xFF;
+        emulator.cpu.bp = 0x01;
+        emulator.cpu.flags = Flags::CF.bits() | Flags::ZF.bits();
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.di, 0xFF);
+                assert_eq!(emulator.cpu.bp, 0x01);
+                assert_eq!(emulator.cpu.flags, 0);
             }
         }
     }
