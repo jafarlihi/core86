@@ -1657,7 +1657,23 @@ impl Emulator {
                         };
                         self.update_flags("CZSOPA", Some(zero), Some(neg), Some(false));
                     },
-                    _ => (),
+                    // MUL
+                    0b100 => {
+                        // TODO
+                    },
+                    // IMUL
+                    0b101 => {
+                        // TODO
+                    },
+                    // DIV
+                    0b110 => {
+                        // TODO
+                    },
+                    // IDIV
+                    0b111 => {
+                        // TODO
+                    },
+                    _ => unreachable!(),
                 };
             },
             _ => (),
@@ -1750,6 +1766,38 @@ impl Emulator {
         if self.ram[address.0 as usize] == 0b10011101 {
             let value = self.pop_word_and_return();
             self.cpu.flags = value;
+        }
+        // CBW
+        if self.ram[address.0 as usize] == 0b10011000 {
+            // TODO
+        }
+        // CWD
+        if self.ram[address.0 as usize] == 0b10011001 {
+            // TODO
+        }
+        // DAA
+        if self.ram[address.0 as usize] == 0b00100111 {
+            // TODO
+        }
+        // DAS
+        if self.ram[address.0 as usize] == 0b00101111 {
+            // TODO
+        }
+        // AAA
+        if self.ram[address.0 as usize] == 0b00110111 {
+            // TODO
+        }
+        // AAS
+        if self.ram[address.0 as usize] == 0b00111111 {
+            // TODO
+        }
+        // AAM
+        if self.ram[address.0 as usize] == 0b11010100 && self.ram[address.0 as usize + 1] == 0b00001010 {
+            // TODO
+        }
+        // AAD
+        if self.ram[address.0 as usize] == 0b11010101 && self.ram[address.0 as usize + 1] == 0b00001010 {
+            // TODO
         }
         self.cpu.ip += instruction_size;
         Ok(())
