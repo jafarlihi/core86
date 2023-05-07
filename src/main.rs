@@ -515,6 +515,7 @@ impl Emulator {
     }
 
     // TODO: Dispatch table?
+    // TODO: Immediate and displacement in the same instruction
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut address = U20::new(self.cpu.cs, self.cpu.ip);
         if self.ram[address.0 as usize] == 0b11110100 {
@@ -1228,6 +1229,10 @@ impl Emulator {
                     };
                 }
             },
+            // AND, modr/m
+            0b001000 => {
+
+            },
             _ => (),
         }
         match self.ram[address.0 as usize] >> 1 {
@@ -1657,19 +1662,23 @@ impl Emulator {
                         };
                         self.update_flags("CZSOPA", Some(zero), Some(neg), Some(false));
                     },
-                    // MUL
+                    // NOT, modr/m
+                    0b010 => {
+                        // TODO
+                    },
+                    // MUL, modr/m
                     0b100 => {
                         // TODO
                     },
-                    // IMUL
+                    // IMUL, modr/m
                     0b101 => {
                         // TODO
                     },
-                    // DIV
+                    // DIV, modr/m
                     0b110 => {
                         // TODO
                     },
-                    // IDIV
+                    // IDIV, modr/m
                     0b111 => {
                         // TODO
                     },
