@@ -529,6 +529,202 @@ impl Emulator {
             segment_override = Some(((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap());
             address = U20::new(self.cpu.cs, self.cpu.ip + 1);
         }
+        // REP
+        if self.ram[address.0 as usize] >> 1 == 0b1111001 {
+            // TODO
+        }
+        // LOOP
+        if self.ram[address.0 as usize] == 0b11100010 {
+            // TODO
+        }
+        // JCXZ
+        if self.ram[address.0 as usize] == 0b11100011 {
+            // TODO
+        }
+        // JMP, direct intrasegment
+        if self.ram[address.0 as usize] == 0b11101001 {
+            // TODO
+        }
+        // JMP, direct intrasegment short
+        if self.ram[address.0 as usize] == 0b11101011 {
+            // TODO
+        }
+        // CALL, indirect intrasegment
+        if self.ram[address.0 as usize] == 0b11101000 {
+            // TODO
+        }
+        // CALL, direct intersegment
+        if self.ram[address.0 as usize] == 0b10011010 {
+            // TODO
+        }
+        // RET, intrasegment
+        if self.ram[address.0 as usize] == 0b11000011 {
+            // TODO
+        }
+        // RET, intrasegment, adding immediate to SP
+        if self.ram[address.0 as usize] == 0b11000010 {
+            // TODO
+        }
+        // RET, intersegment
+        if self.ram[address.0 as usize] == 0b11001011 {
+            // TODO
+        }
+        // RET, intersegment, adding immediate to SP
+        if self.ram[address.0 as usize] == 0b11001010 {
+            // TODO
+        }
+        // JE/JZ
+        if self.ram[address.0 as usize] == 0b01110100 {
+            // TODO
+        }
+        // JNE/JNZ
+        if self.ram[address.0 as usize] == 0b01110101 {
+            // TODO
+        }
+        // JL/JNGE
+        if self.ram[address.0 as usize] == 0b01111100 {
+            // TODO
+        }
+        // JNL/JGE
+        if self.ram[address.0 as usize] == 0b01111101 {
+            // TODO
+        }
+        // JLE/JNG
+        if self.ram[address.0 as usize] == 0b01111110 {
+            // TODO
+        }
+        // JNLE/JG
+        if self.ram[address.0 as usize] == 0b01111111 {
+            // TODO
+        }
+        // JB/JNAE
+        if self.ram[address.0 as usize] == 0b01110010 {
+            // TODO
+        }
+        // JNB/JAE
+        if self.ram[address.0 as usize] == 0b01110011 {
+            // TODO
+        }
+        // JBE/JNA
+        if self.ram[address.0 as usize] == 0b01110110 {
+            // TODO
+        }
+        // JNBE/JA
+        if self.ram[address.0 as usize] == 0b01110111 {
+            // TODO
+        }
+        // JP/JPE
+        if self.ram[address.0 as usize] == 0b01111010 {
+            // TODO
+        }
+        // JNP/JPO
+        if self.ram[address.0 as usize] == 0b01111011 {
+            // TODO
+        }
+        // JO
+        if self.ram[address.0 as usize] == 0b01110000 {
+            // TODO
+        }
+        // JNO
+        if self.ram[address.0 as usize] == 0b01110001 {
+            // TODO
+        }
+        // JS
+        if self.ram[address.0 as usize] == 0b01111000 {
+            // TODO
+        }
+        // JNS
+        if self.ram[address.0 as usize] == 0b01111001 {
+            // TODO
+        }
+        // INT, specified type
+        if self.ram[address.0 as usize] == 0b11001101 {
+            // TODO
+        }
+        // INT, type 3
+        if self.ram[address.0 as usize] == 0b11001100 {
+            // TODO
+        }
+        // INTO
+        if self.ram[address.0 as usize] == 0b11001110 {
+            // TODO
+        }
+        // IRET
+        if self.ram[address.0 as usize] == 0b11001111 {
+            // TODO
+        }
+        // HLT
+        if self.ram[address.0 as usize] == 0b11110100 {
+            // TODO
+        }
+        // CLC
+        if self.ram[address.0 as usize] == 0b11111000 {
+            // TODO
+        }
+        // CMC
+        if self.ram[address.0 as usize] == 0b11110101 {
+            // TODO
+        }
+        // STC
+        if self.ram[address.0 as usize] == 0b11111001 {
+            // TODO
+        }
+        // CLD
+        if self.ram[address.0 as usize] == 0b11111100 {
+            // TODO
+        }
+        // STD
+        if self.ram[address.0 as usize] == 0b11111101 {
+            // TODO
+        }
+        // CLI
+        if self.ram[address.0 as usize] == 0b11111010 {
+            // TODO
+        }
+        // STI
+        if self.ram[address.0 as usize] == 0b11111011 {
+            // TODO
+        }
+        // WAIT
+        if self.ram[address.0 as usize] == 0b10011011 {
+            // TODO
+        }
+        // LOCK
+        if self.ram[address.0 as usize] == 0b11110000 {
+            // TODO
+        }
+        /* TODO: Belongs to INC, modr/m block below
+        if self.ram[address.0 as usize] == 0b11111111 {
+            instruction_size += 1;
+            let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
+            let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+            instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+            match modrm.1 {
+                // JMP, indirect intrasegment
+                0b100 => {
+                    // TODO
+                },
+                // JMP, indirect intersegment
+                0b101 => {
+                    // TODO
+                },
+                // CALL, indirect intrasegment
+                0b010 => {
+                    // TODO
+                },
+                // CALL, indirect intersegment
+                0b011 => {
+                    // TODO
+                },
+                _ => (),
+            }
+        }
+        */
+        // JMP, direct intersegment
+        if self.ram[address.0 as usize] == 0b11101010 {
+            // TODO
+        }
+
         // PUSH, segment register
         if self.ram[address.0 as usize] & 0b11100111 == 0b00000110 {
             let segment: SegmentRegister = ((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap();
@@ -621,6 +817,10 @@ impl Emulator {
                         _ => unreachable!(),
                     };
                 });
+            },
+            // ESC, modr/m
+            0b11011 => {
+                // TODO
             },
             _ => (),
         }
@@ -1241,11 +1441,72 @@ impl Emulator {
             0b001100 => {
                 // TODO
             },
+            0b110100 => {
+                instruction_size += 1;
+                let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                match modrm.1 {
+                    // SHL/SAL, mod/rm
+                    0b100 => {
+                        // TODO
+                    },
+                    // SHR, modr/m
+                    0b101 => {
+                        // TODO
+                    },
+                    // SAR, modr/m
+                    0b111 => {
+                        // TODO
+                    },
+                    // ROL, modr/m
+                    0b000 => {
+                        // TODO
+                    },
+                    // ROR, modr/m
+                    0b001 => {
+                        // TODO
+                    },
+                    // RCL, modr/m
+                    0b010 => {
+                        // TODO
+                    },
+                    // RCR, modr/m
+                    0b011 => {
+                        // TODO
+                    },
+                    _ => unreachable!(),
+                };
+            },
             _ => (),
         }
         match self.ram[address.0 as usize] >> 1 {
+            // LOOPNZ/LOOPZ
+            0b1110000 => {
+                // TODO
+            },
             // TEST, modr/m
             0b1000010 => {
+                // TODO
+            },
+            // MOVS
+            0b1010010 => {
+                // TODO
+            },
+            // CMPS
+            0b1010011 => {
+                // TODO
+            },
+            // SCAS
+            0b1010111 => {
+                // TODO
+            },
+            // LODS
+            0b1010110 => {
+                // TODO
+            },
+            // STOS
+            0b1010101 => {
                 // TODO
             },
             0b1111111 => {
@@ -1318,6 +1579,7 @@ impl Emulator {
                 instruction_size += 1;
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                 match modrm.1 {
                     // MOV, mod/rm, immediate
                     0b00000000 => {
