@@ -1231,11 +1231,23 @@ impl Emulator {
             },
             // AND, modr/m
             0b001000 => {
-
+                // TODO
+            },
+            // OR, modr/m
+            0b000010 => {
+                // TODO
+            },
+            // XOR, modr/m
+            0b001100 => {
+                // TODO
             },
             _ => (),
         }
         match self.ram[address.0 as usize] >> 1 {
+            // TEST, modr/m
+            0b1000010 => {
+                // TODO
+            },
             0b1111111 => {
                 instruction_size += 1;
                 let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
@@ -1682,8 +1694,49 @@ impl Emulator {
                     0b111 => {
                         // TODO
                     },
+                    // TEST, modr/m, immediate
+                    0b000 => {
+                        // TODO
+                    },
                     _ => unreachable!(),
                 };
+            },
+            0b1000000 => {
+                instruction_size += 1;
+                let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                match modrm.1 {
+                    // AND, modr/m, immediate
+                    0b100 => {
+                        // TODO
+                    },
+                    // OR, modr/m, immediate
+                    0b001 => {
+                        // TODO
+                    },
+                    // XOR, modr/m, immediate
+                    0b110 => {
+                        // TODO
+                    },
+                    _ => (),
+                }
+            },
+            // AND, immediate with AX/AL
+            0b0010010 => {
+                // TODO
+            },
+            // OR, immediate with AX/AL
+            0b0000110 => {
+                // TODO
+            },
+            // XOR, immediate with AX/AL
+            0b0011010 => {
+                // TODO
+            },
+            // TEST, immediate with AX/AL
+            0b1010100 => {
+                // TODO
             },
             _ => (),
         }
