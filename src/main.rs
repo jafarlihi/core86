@@ -601,19 +601,37 @@ impl Emulator {
         }
         // RET, intrasegment
         if self.ram[address.0 as usize] == 0b11000011 {
-            // TODO
+            let offset = self.pop_word();
+            self.cpu.ip = offset;
+            return Ok(());
         }
         // RET, intrasegment, adding immediate to SP
         if self.ram[address.0 as usize] == 0b11000010 {
-            // TODO
+            // instruction_size += 2;
+            let immediate = (self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16;
+            self.cpu.ss += immediate;
+            let offset = self.pop_word();
+            self.cpu.ip = offset;
+            return Ok(());
         }
         // RET, intersegment
         if self.ram[address.0 as usize] == 0b11001011 {
-            // TODO
+            let offset = self.pop_word();
+            let segment = self.pop_word();
+            self.cpu.ip = offset;
+            self.cpu.cs = segment;
+            return Ok(());
         }
         // RET, intersegment, adding immediate to SP
         if self.ram[address.0 as usize] == 0b11001010 {
-            // TODO
+            // instruction_size += 2;
+            let immediate = (self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16;
+            self.cpu.ss += immediate;
+            let offset = self.pop_word();
+            let segment = self.pop_word();
+            self.cpu.ip = offset;
+            self.cpu.cs = segment;
+            return Ok(());
         }
         // JE/JZ
         if self.ram[address.0 as usize] == 0b01110100 {
