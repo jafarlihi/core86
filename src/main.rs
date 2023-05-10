@@ -1506,7 +1506,13 @@ impl Emulator {
                     match modrm.1 {
                         // JMP, indirect intrasegment
                         0b100 => {
-                            // TODO
+                            let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                            let operand_value = self.get_operand_value(&operand, &OperandSize::Word);
+                            self.cpu.ip = match operand_value {
+                                Value::Word(w) => w,
+                                _ => unreachable!(),
+                            };
+                            return Ok(());
                         },
                         // JMP, indirect intersegment
                         0b101 => {
@@ -3433,6 +3439,33 @@ mod tests {
         emulator.ram[address.0 as usize] = 0b01000101;
         // hlt
         emulator.ram[address.0 as usize + 1] = 0xF4;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_jmp_indirect_intrasegment() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // jmp bx
+        disk[0] = 0b11111111;
+        disk[1] = 0b11100011;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.bx = 0x09;
+        emulator.ram[9] = 0b01000101;
+        emulator.ram[10] = 0xF4;
         let run = emulator.run();
 
         match run {
