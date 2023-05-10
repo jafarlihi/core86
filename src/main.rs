@@ -1516,7 +1516,21 @@ impl Emulator {
                         },
                         // JMP, indirect intersegment
                         0b101 => {
-                            // TODO
+                            let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                            match operand {
+                                Operand::Memory(m) => {
+                                     let offset = (self.ram[m.0 as usize + 0] as u16
+                                         | ((self.ram[m.0 as usize + 1] as u16)) << 8)
+                                         as u16;
+                                     let segment = (self.ram[m.0 as usize + 2] as u16
+                                         | ((self.ram[m.0 as usize + 3] as u16)) << 8)
+                                         as u16;
+                                     self.cpu.ip = offset;
+                                     self.cpu.cs = segment;
+                                     return Ok(());
+                                },
+                                _ => (),
+                            };
                         },
                         // CALL, indirect intrasegment
                         0b010 => {
@@ -3466,6 +3480,38 @@ mod tests {
         emulator.cpu.bx = 0x09;
         emulator.ram[9] = 0b01000101;
         emulator.ram[10] = 0xF4;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_jmp_indirect_intersegment() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // jmp far [bx]
+        disk[0] = 0b11111111;
+        disk[1] = 0b00101111;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.bx = 0x09;
+        emulator.ram[9] = 0b00000010;
+        emulator.ram[10] = 0b00000000;
+        emulator.ram[11] = 0b00000010;
+        emulator.ram[12] = 0b00000000;
+        let address = U20::new(0x2, 0x2);
+        emulator.ram[address.0 as usize] = 0b01000101;
+        emulator.ram[address.0 as usize + 1] = 0xF4;
         let run = emulator.run();
 
         match run {
