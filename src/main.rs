@@ -749,7 +749,7 @@ impl Emulator {
                 return Ok(());
             }
             let segment: RegisterEncoding16 = segment.try_into().unwrap();
-            self.pop_word(&Operand::Register(RegisterEncoding::RegisterEncoding16(segment)));
+            self.pop_word_into_operand(&Operand::Register(RegisterEncoding::RegisterEncoding16(segment)));
         }
 
         match self.ram[address.0 as usize] >> 4 {
@@ -803,7 +803,7 @@ impl Emulator {
             // POP, register-mode
             0b01011 => {
                 let register = RegisterEncoding::RegisterEncoding16((self.ram[address.0 as usize] & 0b00000111).try_into().unwrap());
-                self.pop_word(&Operand::Register(register));
+                self.pop_word_into_operand(&Operand::Register(register));
             },
             // XCHG, with AX, register-mode
             0b10010 => {
@@ -2080,7 +2080,7 @@ impl Emulator {
                 0b000 => {
                     instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
                     let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
-                    self.pop_word(&operand);
+                    self.pop_word_into_operand(&operand);
                 },
                 _ => (),
             };
@@ -2158,7 +2158,7 @@ impl Emulator {
         }
         // POPF
         if self.ram[address.0 as usize] == 0b10011101 {
-            let value = self.pop_word_and_return();
+            let value = self.pop_word();
             self.cpu.flags = value;
         }
         // CBW
@@ -2335,8 +2335,8 @@ impl Emulator {
         self.ram[(m.0 + 1) as usize] = (w >> 8) as u8
     }
 
-    fn pop_word(&mut self, operand: &Operand) {
-        let value = self.pop_word_and_return();
+    fn pop_word_into_operand(&mut self, operand: &Operand) {
+        let value = self.pop_word();
         match operand {
             Operand::Register(r) => {
                 self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
@@ -2349,7 +2349,7 @@ impl Emulator {
         };
     }
 
-    fn pop_word_and_return(&mut self) -> u16 {
+    fn pop_word(&mut self) -> u16 {
         let address = U20::new(self.cpu.ss, self.cpu.sp);
         let value = self.ram[address.0 as usize] as u16 | (self.ram[address.0 as usize + 1] as u16) << 8;
         self.cpu.sp += 2;
