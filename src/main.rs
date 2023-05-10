@@ -1455,15 +1455,147 @@ impl Emulator {
             },
             // AND, modr/m
             0b001000 => {
-                // TODO
+                let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                let operand_value = self.get_operand_value(&operand, &operand_size);
+                let register_value = self.cpu.read_register(&register);
+                let result = match operand_value {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w & w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b & b2),
+                        _ => unreachable!(),
+                    },
+                };
+                match direction {
+                    OperandDirection::Register => {
+                        self.cpu.write_register(&register, &result);
+                    },
+                    OperandDirection::ModRM => {
+                        match result {
+                            Value::Byte(b) => {
+                                match operand {
+                                    Operand::Memory(m) => self.ram[m.0 as usize] = b,
+                                    _ => unreachable!(),
+                                };
+                            },
+                            Value::Word(w) => {
+                                match operand {
+                                    Operand::Memory(m) => self.write_word(&m, w),
+                                    _ => unreachable!(),
+                                };
+                            },
+                        };
+                    },
+                };
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
             },
             // OR, modr/m
             0b000010 => {
-                // TODO
+                let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                let operand_value = self.get_operand_value(&operand, &operand_size);
+                let register_value = self.cpu.read_register(&register);
+                let result = match operand_value {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w | w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b | b2),
+                        _ => unreachable!(),
+                    },
+                };
+                match direction {
+                    OperandDirection::Register => {
+                        self.cpu.write_register(&register, &result);
+                    },
+                    OperandDirection::ModRM => {
+                        match result {
+                            Value::Byte(b) => {
+                                match operand {
+                                    Operand::Memory(m) => self.ram[m.0 as usize] = b,
+                                    _ => unreachable!(),
+                                };
+                            },
+                            Value::Word(w) => {
+                                match operand {
+                                    Operand::Memory(m) => self.write_word(&m, w),
+                                    _ => unreachable!(),
+                                };
+                            },
+                        };
+                    },
+                };
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
             },
             // XOR, modr/m
             0b001100 => {
-                // TODO
+                let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                let operand_value = self.get_operand_value(&operand, &operand_size);
+                let register_value = self.cpu.read_register(&register);
+                let result = match operand_value {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w ^ w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b ^ b2),
+                        _ => unreachable!(),
+                    },
+                };
+                match direction {
+                    OperandDirection::Register => {
+                        self.cpu.write_register(&register, &result);
+                    },
+                    OperandDirection::ModRM => {
+                        match result {
+                            Value::Byte(b) => {
+                                match operand {
+                                    Operand::Memory(m) => self.ram[m.0 as usize] = b,
+                                    _ => unreachable!(),
+                                };
+                            },
+                            Value::Word(w) => {
+                                match operand {
+                                    Operand::Memory(m) => self.write_word(&m, w),
+                                    _ => unreachable!(),
+                                };
+                            },
+                        };
+                    },
+                };
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
             },
             0b110100 => {
                 instruction_size += 1;
@@ -1511,7 +1643,29 @@ impl Emulator {
             },
             // TEST, modr/m
             0b1000010 => {
-                // TODO
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
+                instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                let register: RegisterEncoding = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(modrm.1.try_into().unwrap()),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(modrm.1.try_into().unwrap()),
+                };
+                let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                let operand_value = self.get_operand_value(&operand, &operand_size);
+                let register_value = self.cpu.read_register(&register);
+                let result = match operand_value {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w & w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b & b2),
+                        _ => unreachable!(),
+                    },
+                };
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
             },
             // MOVS
             0b1010010 => {
@@ -2046,7 +2200,31 @@ impl Emulator {
                     },
                     // TEST, modr/m, immediate
                     0b000 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let immediate = match operand_size {
+                            OperandSize::Byte => {
+                                instruction_size += 1;
+                                Value::Byte(self.ram[address.0 as usize + 1])
+                            },
+                            OperandSize::Word => {
+                                instruction_size += 2;
+                                Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                            },
+                        };
+                        let result = match operand_value {
+                            Value::Word(w) => match immediate {
+                                Value::Word(w2) => Value::Word(w & w2),
+                                _ => unreachable!(),
+                            },
+                            Value::Byte(b) => match immediate {
+                                Value::Byte(b2) => Value::Byte(b & b2),
+                                _ => unreachable!(),
+                            },
+                        };
+                        self.cpu.flags &= !Flags::CF.bits();
+                        self.cpu.flags &= !Flags::OF.bits();
+                        self.update_flags("SZP", None, Some(result), None);
                     },
                     _ => unreachable!(),
                 };
@@ -2059,34 +2237,267 @@ impl Emulator {
                 match modrm.1 {
                     // AND, modr/m, immediate
                     0b100 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let immediate = match operand_size {
+                            OperandSize::Byte => {
+                                instruction_size += 1;
+                                Value::Byte(self.ram[address.0 as usize + 1])
+                            },
+                            OperandSize::Word => {
+                                instruction_size += 2;
+                                Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                            },
+                        };
+                        let result = match operand_value {
+                            Value::Word(w) => match immediate {
+                                Value::Word(w2) => Value::Word(w & w2),
+                                _ => unreachable!(),
+                            },
+                            Value::Byte(b) => match immediate {
+                                Value::Byte(b2) => Value::Byte(b & b2),
+                                _ => unreachable!(),
+                            },
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &result);
+                            },
+                            Operand::Memory(m) => {
+                                match result {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                        self.cpu.flags &= !Flags::CF.bits();
+                        self.cpu.flags &= !Flags::OF.bits();
+                        self.update_flags("SZP", None, Some(result), None);
                     },
                     // OR, modr/m, immediate
                     0b001 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let immediate = match operand_size {
+                            OperandSize::Byte => {
+                                instruction_size += 1;
+                                Value::Byte(self.ram[address.0 as usize + 1])
+                            },
+                            OperandSize::Word => {
+                                instruction_size += 2;
+                                Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                            },
+                        };
+                        let result = match operand_value {
+                            Value::Word(w) => match immediate {
+                                Value::Word(w2) => Value::Word(w | w2),
+                                _ => unreachable!(),
+                            },
+                            Value::Byte(b) => match immediate {
+                                Value::Byte(b2) => Value::Byte(b | b2),
+                                _ => unreachable!(),
+                            },
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &result);
+                            },
+                            Operand::Memory(m) => {
+                                match result {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                        self.cpu.flags &= !Flags::CF.bits();
+                        self.cpu.flags &= !Flags::OF.bits();
+                        self.update_flags("SZP", None, Some(result), None);
                     },
                     // XOR, modr/m, immediate
                     0b110 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let immediate = match operand_size {
+                            OperandSize::Byte => {
+                                instruction_size += 1;
+                                Value::Byte(self.ram[address.0 as usize + 1])
+                            },
+                            OperandSize::Word => {
+                                instruction_size += 2;
+                                Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                            },
+                        };
+                        let result = match operand_value {
+                            Value::Word(w) => match immediate {
+                                Value::Word(w2) => Value::Word(w ^ w2),
+                                _ => unreachable!(),
+                            },
+                            Value::Byte(b) => match immediate {
+                                Value::Byte(b2) => Value::Byte(b ^ b2),
+                                _ => unreachable!(),
+                            },
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &result);
+                            },
+                            Operand::Memory(m) => {
+                                match result {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+                        self.cpu.flags &= !Flags::CF.bits();
+                        self.cpu.flags &= !Flags::OF.bits();
+                        self.update_flags("SZP", None, Some(result), None);
                     },
                     _ => (),
                 }
             },
             // AND, immediate with AX/AL
             0b0010010 => {
-                // TODO
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                let register_value = self.cpu.read_register(&register);
+                let result = match immediate {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w & w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b & b2),
+                        _ => unreachable!(),
+                    },
+                };
+                self.cpu.write_register(&register, &result);
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
             },
             // OR, immediate with AX/AL
             0b0000110 => {
-                // TODO
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                let register_value = self.cpu.read_register(&register);
+                let result = match immediate {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w | w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b | b2),
+                        _ => unreachable!(),
+                    },
+                };
+                self.cpu.write_register(&register, &result);
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
+
             },
             // XOR, immediate with AX/AL
             0b0011010 => {
-                // TODO
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                let register_value = self.cpu.read_register(&register);
+                let result = match immediate {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w ^ w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b ^ b2),
+                        _ => unreachable!(),
+                    },
+                };
+                self.cpu.write_register(&register, &result);
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
             },
             // TEST, immediate with AX/AL
             0b1010100 => {
-                // TODO
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                let register = match operand_size {
+                    OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                    OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                };
+                let immediate = match operand_size {
+                    OperandSize::Byte => {
+                        instruction_size += 1;
+                        Value::Byte(self.ram[address.0 as usize + 1])
+                    },
+                    OperandSize::Word => {
+                        instruction_size += 2;
+                        Value::Word((self.ram[address.0 as usize + 2] as u16) << 8 | self.ram[address.0 as usize + 1] as u16)
+                    },
+                };
+                let register_value = self.cpu.read_register(&register);
+                let result = match immediate {
+                    Value::Word(w) => match register_value {
+                        Value::Word(w2) => Value::Word(w & w2),
+                        _ => unreachable!(),
+                    },
+                    Value::Byte(b) => match register_value {
+                        Value::Byte(b2) => Value::Byte(b & b2),
+                        _ => unreachable!(),
+                    },
+                };
+                self.cpu.flags &= !Flags::CF.bits();
+                self.cpu.flags &= !Flags::OF.bits();
+                self.update_flags("SZP", None, Some(result), None);
             },
             _ => (),
         }
