@@ -523,6 +523,7 @@ impl Emulator {
         }
         let mut instruction_size = 1;
         let mut segment_override: Option<SegmentRegister> = None;
+        let mut rep_while_zero: Option<bool> = None;
         // Segment override prefix
         if self.ram[address.0 as usize] >> 5 == 0b00000001 && self.ram[address.0 as usize] & 0b00000111 == 0b00000110 {
             instruction_size += 1;
@@ -531,7 +532,8 @@ impl Emulator {
         }
         // REP
         if self.ram[address.0 as usize] >> 1 == 0b1111001 {
-            // TODO
+            let while_equal_zero = self.ram[address.0 as usize].bit(0);
+            rep_while_zero = Some(while_equal_zero);
         }
         // LOOP
         if self.ram[address.0 as usize] == 0b11100010 {
@@ -543,11 +545,19 @@ impl Emulator {
         }
         // JMP, direct intrasegment
         if self.ram[address.0 as usize] == 0b11101001 {
-            // TODO
+            // instruction_size += 2;
+            let diff = (self.ram[address.0 as usize + 1] as u16
+                | ((self.ram[address.0 as usize + 2] as u16)) << 8)
+                as i16;
+            self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+            return Ok(())
         }
         // JMP, direct intrasegment short
         if self.ram[address.0 as usize] == 0b11101011 {
-            // TODO
+            // instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+            return Ok(())
         }
         // CALL, indirect intrasegment
         if self.ram[address.0 as usize] == 0b11101000 {
@@ -693,38 +703,10 @@ impl Emulator {
         if self.ram[address.0 as usize] == 0b11110000 {
             // TODO
         }
-        /* TODO: Belongs to INC, modr/m block below
-        if self.ram[address.0 as usize] == 0b11111111 {
-            instruction_size += 1;
-            let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
-            let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
-            instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
-            match modrm.1 {
-                // JMP, indirect intrasegment
-                0b100 => {
-                    // TODO
-                },
-                // JMP, indirect intersegment
-                0b101 => {
-                    // TODO
-                },
-                // CALL, indirect intrasegment
-                0b010 => {
-                    // TODO
-                },
-                // CALL, indirect intersegment
-                0b011 => {
-                    // TODO
-                },
-                _ => (),
-            }
-        }
-        */
         // JMP, direct intersegment
         if self.ram[address.0 as usize] == 0b11101010 {
             // TODO
         }
-
         // PUSH, segment register
         if self.ram[address.0 as usize] & 0b11100111 == 0b00000110 {
             let segment: SegmentRegister = ((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap();
@@ -1514,6 +1496,27 @@ impl Emulator {
                 let operand_size: OperandSize = (self.ram[address.0 as usize] & 0b00000001).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
                 instruction_size += Self::get_instruction_size_extension_by_mod(&modrm.0);
+                if self.ram[address.0 as usize].bit(0) {
+                    match modrm.1 {
+                        // JMP, indirect intrasegment
+                        0b100 => {
+                            // TODO
+                        },
+                        // JMP, indirect intersegment
+                        0b101 => {
+                            // TODO
+                        },
+                        // CALL, indirect intrasegment
+                        0b010 => {
+                            // TODO
+                        },
+                        // CALL, indirect intersegment
+                        0b011 => {
+                            // TODO
+                        },
+                        _ => (),
+                    }
+                }
                 match modrm.1 {
                     // INC, modr/m
                     0b000 => {
@@ -3341,6 +3344,63 @@ mod tests {
                 assert_eq!(emulator.cpu.di, 0xFF);
                 assert_eq!(emulator.cpu.bp, 0x01);
                 assert_eq!(emulator.cpu.flags, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_jmp_short_direct_intrasegment() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // jmp short "+3"
+        disk[0] = 0b11101011;
+        disk[1] = 0b00000011;
+        // hlt
+        disk[2] = 0xF4;
+        // inc bp
+        disk[3] = 0b01000101;
+        // hlt
+        disk[4] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_jmp_direct_intrasegment() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // jmp "+4"
+        disk[0] = 0b11101001;
+        disk[1] = 0b00000100;
+        disk[2] = 0b00000000;
+        // hlt
+        disk[3] = 0xF4;
+        // inc bp
+        disk[4] = 0b01000101;
+        // hlt
+        disk[5] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 1);
             }
         }
     }
