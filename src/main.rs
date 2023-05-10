@@ -516,6 +516,7 @@ impl Emulator {
 
     // TODO: Dispatch table?
     // TODO: Immediate and displacement in the same instruction
+    // TODO: Exceptions
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut address = U20::new(self.cpu.cs, self.cpu.ip);
         // HLT
@@ -560,13 +561,43 @@ impl Emulator {
             self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
             return Ok(())
         }
-        // CALL, indirect intrasegment
+        // JMP, direct intersegment
+        if self.ram[address.0 as usize] == 0b11101010 {
+            // instruction_size += 4;
+            let offset = (self.ram[address.0 as usize + 1] as u16
+                | ((self.ram[address.0 as usize + 2] as u16)) << 8)
+                as u16;
+            let segment = (self.ram[address.0 as usize + 3] as u16
+                | ((self.ram[address.0 as usize + 4] as u16)) << 8)
+                as u16;
+            self.cpu.ip = offset;
+            self.cpu.cs = segment;
+            return Ok(())
+        }
+        // CALL, direct intrasegment
         if self.ram[address.0 as usize] == 0b11101000 {
-            // TODO
+            instruction_size += 2;
+            let diff = (self.ram[address.0 as usize + 1] as u16
+                | ((self.ram[address.0 as usize + 2] as u16)) << 8)
+                as i16;
+            self.push_word(self.cpu.ip + instruction_size);
+            self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+            return Ok(())
         }
         // CALL, direct intersegment
         if self.ram[address.0 as usize] == 0b10011010 {
-            // TODO
+            instruction_size += 4;
+            let offset = (self.ram[address.0 as usize + 1] as u16
+                | ((self.ram[address.0 as usize + 2] as u16)) << 8)
+                as u16;
+            let segment = (self.ram[address.0 as usize + 3] as u16
+                | ((self.ram[address.0 as usize + 4] as u16)) << 8)
+                as u16;
+            self.push_word(self.cpu.cs);
+            self.push_word(self.cpu.ip + instruction_size);
+            self.cpu.ip = offset;
+            self.cpu.cs = segment;
+            return Ok(())
         }
         // RET, intrasegment
         if self.ram[address.0 as usize] == 0b11000011 {
@@ -699,19 +730,6 @@ impl Emulator {
         // LOCK
         if self.ram[address.0 as usize] == 0b11110000 {
             // TODO
-        }
-        // JMP, direct intersegment
-        if self.ram[address.0 as usize] == 0b11101010 {
-            // instruction_size += 4;
-            let offset = (self.ram[address.0 as usize + 1] as u16
-                | ((self.ram[address.0 as usize + 2] as u16)) << 8)
-                as u16;
-            let segment = (self.ram[address.0 as usize + 3] as u16
-                | ((self.ram[address.0 as usize + 4] as u16)) << 8)
-                as u16;
-            self.cpu.ip = offset;
-            self.cpu.cs = segment;
-            return Ok(())
         }
         // PUSH, segment register
         if self.ram[address.0 as usize] & 0b11100111 == 0b00000110 {
@@ -1534,11 +1552,34 @@ impl Emulator {
                         },
                         // CALL, indirect intrasegment
                         0b010 => {
-                            // TODO
+                            let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                            let operand_value = self.get_operand_value(&operand, &OperandSize::Word);
+                            self.push_word(self.cpu.ip + instruction_size);
+                            self.cpu.ip = match operand_value {
+                                Value::Word(w) => w,
+                                _ => unreachable!(),
+                            };
+                            return Ok(());
                         },
                         // CALL, indirect intersegment
                         0b011 => {
-                            // TODO
+                            let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                            match operand {
+                                Operand::Memory(m) => {
+                                     let offset = (self.ram[m.0 as usize + 0] as u16
+                                         | ((self.ram[m.0 as usize + 1] as u16)) << 8)
+                                         as u16;
+                                     let segment = (self.ram[m.0 as usize + 2] as u16
+                                         | ((self.ram[m.0 as usize + 3] as u16)) << 8)
+                                         as u16;
+                                     self.push_word(self.cpu.cs);
+                                     self.push_word(self.cpu.ip + instruction_size);
+                                     self.cpu.ip = offset;
+                                     self.cpu.cs = segment;
+                                     return Ok(());
+                                },
+                                _ => (),
+                            };
                         },
                         _ => (),
                     }
@@ -3518,6 +3559,45 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.bp, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_call_indirect_intersegment() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // call far [bx]
+        disk[0] = 0b11111111;
+        disk[1] = 0b00011111;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0xAAAA;
+        emulator.cpu.sp = 4;
+        emulator.cpu.bx = 0x09;
+        emulator.ram[9] = 0b00000010;
+        emulator.ram[10] = 0b00000000;
+        emulator.ram[11] = 0b00000010;
+        emulator.ram[12] = 0b00000000;
+        let address = U20::new(0x2, 0x2);
+        emulator.ram[address.0 as usize] = 0b01000101;
+        emulator.ram[address.0 as usize + 1] = 0xF4;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 1);
+                let address = U20::new(0xAAAA, 4);
+                assert_eq!(emulator.ram[address.0 as usize - 1], 0);
+                assert_eq!(emulator.ram[address.0 as usize - 2], 0);
+                assert_eq!(emulator.ram[address.0 as usize - 3], 0x7c);
+                assert_eq!(emulator.ram[address.0 as usize - 4], 0x02);
             }
         }
     }
