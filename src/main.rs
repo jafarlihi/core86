@@ -518,6 +518,7 @@ impl Emulator {
     // TODO: Immediate and displacement in the same instruction
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let mut address = U20::new(self.cpu.cs, self.cpu.ip);
+        // HLT
         if self.ram[address.0 as usize] == 0b11110100 {
             return Err("Halted".into());
         }
@@ -663,10 +664,6 @@ impl Emulator {
         if self.ram[address.0 as usize] == 0b11001111 {
             // TODO
         }
-        // HLT
-        if self.ram[address.0 as usize] == 0b11110100 {
-            // TODO
-        }
         // CLC
         if self.ram[address.0 as usize] == 0b11111000 {
             // TODO
@@ -705,7 +702,16 @@ impl Emulator {
         }
         // JMP, direct intersegment
         if self.ram[address.0 as usize] == 0b11101010 {
-            // TODO
+            // instruction_size += 4;
+            let offset = (self.ram[address.0 as usize + 1] as u16
+                | ((self.ram[address.0 as usize + 2] as u16)) << 8)
+                as u16;
+            let segment = (self.ram[address.0 as usize + 3] as u16
+                | ((self.ram[address.0 as usize + 4] as u16)) << 8)
+                as u16;
+            self.cpu.ip = offset;
+            self.cpu.cs = segment;
+            return Ok(())
         }
         // PUSH, segment register
         if self.ram[address.0 as usize] & 0b11100111 == 0b00000110 {
@@ -3395,6 +3401,38 @@ mod tests {
         disk[5] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_jmp_direct_intersegment() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // jmp 0x2:0x2
+        disk[0] = 0b11101010;
+        disk[1] = 0b00000010;
+        disk[2] = 0b00000000;
+        disk[3] = 0b00000010;
+        disk[4] = 0b00000000;
+        // hlt
+        disk[5] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        let address = U20::new(0x2, 0x2);
+        // inc bp
+        emulator.ram[address.0 as usize] = 0b01000101;
+        // hlt
+        emulator.ram[address.0 as usize + 1] = 0xF4;
         let run = emulator.run();
 
         match run {
