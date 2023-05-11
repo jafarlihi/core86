@@ -1824,8 +1824,6 @@ impl Emulator {
                                 self.cpu.write_register(&r, &result);
                             },
                             Operand::Memory(m) => {
-                                // TODO: Refactor all these instances to a single call like
-                                // write_register
                                 match result {
                                     Value::Byte(b) => {
                                         self.ram[m.0 as usize] = b
@@ -1839,7 +1837,68 @@ impl Emulator {
                     },
                     // SAR, modr/m
                     0b111 => {
-                        // TODO
+                        let mut variable_shift = self.ram[address.0 as usize].bit(1);
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let count = match variable_shift {
+                            true => self.cpu.read_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL)),
+                            false => Value::Byte(1),
+                        };
+                        if count == Value::Byte(1) {
+                            variable_shift = false;
+                        }
+                        if !variable_shift {
+                            self.cpu.flags &= !Flags::OF.bits();
+                        }
+                        let mut result = operand_value;
+                        match count {
+                            Value::Byte(b) => {
+                                for _ in 0..b {
+                                    let before = result.clone();
+                                    result = match result {
+                                        Value::Word(w) => {
+                                            Value::Word(((w as i16) >> 1) as u16)
+                                        },
+                                        Value::Byte(b) => {
+                                            Value::Byte(((b as i8) >> 1) as u8)
+                                        },
+                                    };
+                                    match before {
+                                        Value::Word(w) => {
+                                            if w.bit(0) {
+                                                self.cpu.flags |= Flags::CF.bits();
+                                            } else {
+                                                self.cpu.flags &= !Flags::CF.bits();
+                                            }
+                                        },
+                                        Value::Byte(b) => {
+                                            if b.bit(0) {
+                                                self.cpu.flags |= Flags::CF.bits();
+                                            } else {
+                                                self.cpu.flags &= !Flags::CF.bits();
+                                            }
+                                        },
+                                    };
+                                }
+                            },
+                            _ => unreachable!(),
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &result);
+                            },
+                            Operand::Memory(m) => {
+                                match result {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
+
                     },
                     // ROL, modr/m
                     0b000 => {
@@ -4310,6 +4369,32 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.ram[address.0 as usize], 0b00010101);
                 assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_sar_1_bit_byte_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // sar ch,1
+        disk[0] = 0b11010000;
+        disk[1] = 0b11111101;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.cx = 0b1010101000000000;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.cx, 0b1101010100000000);
+                assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 0);
             }
         }
     }
