@@ -543,7 +543,12 @@ impl Emulator {
         }
         // JCXZ
         if self.ram[address.0 as usize] == 0b11100011 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.cx == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JMP, direct intrasegment
         if self.ram[address.0 as usize] == 0b11101001 {
@@ -635,67 +640,149 @@ impl Emulator {
         }
         // JE/JZ
         if self.ram[address.0 as usize] == 0b01110100 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::ZF.bits() == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNE/JNZ
         if self.ram[address.0 as usize] == 0b01110101 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::ZF.bits() != 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JL/JNGE
         if self.ram[address.0 as usize] == 0b01111100 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if (self.cpu.flags & Flags::SF.bits()).count_ones() != (self.cpu.flags & Flags::OF.bits()).count_ones() {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNL/JGE
         if self.ram[address.0 as usize] == 0b01111101 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if (self.cpu.flags & Flags::SF.bits()).count_ones() == (self.cpu.flags & Flags::OF.bits()).count_ones() {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JLE/JNG
         if self.ram[address.0 as usize] == 0b01111110 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if (self.cpu.flags & Flags::SF.bits()).count_ones() != (self.cpu.flags & Flags::OF.bits()).count_ones()
+                && self.cpu.flags & Flags::ZF.bits() != 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNLE/JG
         if self.ram[address.0 as usize] == 0b01111111 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if (self.cpu.flags & Flags::SF.bits()).count_ones() == (self.cpu.flags & Flags::OF.bits()).count_ones()
+                && self.cpu.flags & Flags::ZF.bits() == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JB/JNAE
         if self.ram[address.0 as usize] == 0b01110010 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::CF.bits() != 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNB/JAE
         if self.ram[address.0 as usize] == 0b01110011 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::CF.bits() == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JBE/JNA
         if self.ram[address.0 as usize] == 0b01110110 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::CF.bits() != 0 || self.cpu.flags & Flags::ZF.bits() != 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNBE/JA
         if self.ram[address.0 as usize] == 0b01110111 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::CF.bits() == 0 && self.cpu.flags & Flags::ZF.bits() == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JP/JPE
         if self.ram[address.0 as usize] == 0b01111010 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::PF.bits() != 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNP/JPO
         if self.ram[address.0 as usize] == 0b01111011 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::PF.bits() == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JO
         if self.ram[address.0 as usize] == 0b01110000 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::OF.bits() != 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNO
         if self.ram[address.0 as usize] == 0b01110001 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::OF.bits() == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JS
         if self.ram[address.0 as usize] == 0b01111000 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::SF.bits() != 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JNS
         if self.ram[address.0 as usize] == 0b01111001 {
-            // TODO
+            instruction_size += 1;
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            if self.cpu.flags & Flags::SF.bits() == 0 {
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // INT, specified type
         if self.ram[address.0 as usize] == 0b11001101 {
