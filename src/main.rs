@@ -1696,10 +1696,10 @@ impl Emulator {
                         let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                         let operand_value = self.get_operand_value(&operand, &operand_size);
                         let count = match variable_shift {
-                            true => self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX)),
-                            false => Value::Word(1),
+                            true => self.cpu.read_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL)),
+                            false => Value::Byte(1),
                         };
-                        if count == Value::Word(1) {
+                        if count == Value::Byte(1) {
                             variable_shift = false;
                         }
                         if !variable_shift {
@@ -1722,8 +1722,8 @@ impl Emulator {
                         }
                         let mut result = operand_value;
                         match count {
-                            Value::Word(w) => {
-                                for _ in 0..w {
+                            Value::Byte(b) => {
+                                for _ in 0..b {
                                     let before = result.clone();
                                     result = match result {
                                         Value::Word(w) => {
@@ -1758,7 +1758,84 @@ impl Emulator {
                     },
                     // SHR, modr/m
                     0b101 => {
-                        // TODO
+                        let mut variable_shift = self.ram[address.0 as usize].bit(1);
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let count = match variable_shift {
+                            true => self.cpu.read_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL)),
+                            false => Value::Byte(1),
+                        };
+                        if count == Value::Byte(1) {
+                            variable_shift = false;
+                        }
+                        if !variable_shift {
+                            match operand_value {
+                                Value::Word(w) => {
+                                    if w.bit(15) {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    }
+                                },
+                                Value::Byte(b) => {
+                                    if b.bit(7) {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    }
+                                },
+                            };
+                        }
+                        let mut result = operand_value;
+                        match count {
+                            Value::Byte(b) => {
+                                for _ in 0..b {
+                                    let before = result.clone();
+                                    result = match result {
+                                        Value::Word(w) => {
+                                            Value::Word(w >> 1)
+                                        },
+                                        Value::Byte(b) => {
+                                            Value::Byte(b >> 1)
+                                        },
+                                    };
+                                    match before {
+                                        Value::Word(w) => {
+                                            if w.bit(0) {
+                                                self.cpu.flags |= Flags::CF.bits();
+                                            } else {
+                                                self.cpu.flags &= !Flags::CF.bits();
+                                            }
+                                        },
+                                        Value::Byte(b) => {
+                                            if b.bit(0) {
+                                                self.cpu.flags |= Flags::CF.bits();
+                                            } else {
+                                                self.cpu.flags &= !Flags::CF.bits();
+                                            }
+                                        },
+                                    };
+                                }
+                            },
+                            _ => unreachable!(),
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &result);
+                            },
+                            Operand::Memory(m) => {
+                                // TODO: Refactor all these instances to a single call like
+                                // write_register
+                                match result {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
                     },
                     // SAR, modr/m
                     0b111 => {
@@ -4181,7 +4258,7 @@ mod tests {
     }
 
     #[test]
-    fn test_shl_1_bit_register() {
+    fn test_shl_1_bit_word_register() {
         let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
@@ -4201,6 +4278,37 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.si, 0b0101010101010100);
+                assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 1);
+                assert_eq!((emulator.cpu.flags & Flags::OF.bits()).count_ones(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_shr_2_bits_byte_memory() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // shr byte [di],cl
+        disk[0] = 0b11010010;
+        disk[1] = 0b00101101;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0b1010101010101010;
+        emulator.cpu.cx = 2;
+        emulator.cpu.di = 23;
+        let address = U20::new(0, 23);
+        emulator.ram[address.0 as usize] = 0b01010111;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.ram[address.0 as usize], 0b00010101);
                 assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 1);
             }
         }
