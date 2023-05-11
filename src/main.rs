@@ -232,7 +232,7 @@ impl CPU {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum Value {
     Byte(u8),
     Word(u16),
@@ -1692,7 +1692,69 @@ impl Emulator {
                 match modrm.1 {
                     // SHL/SAL, mod/rm
                     0b100 => {
-                        // TODO
+                        let mut variable_shift = self.ram[address.0 as usize].bit(1);
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let count = match variable_shift {
+                            true => self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX)),
+                            false => Value::Word(1),
+                        };
+                        if count == Value::Word(1) {
+                            variable_shift = false;
+                        }
+                        if !variable_shift {
+                            match operand_value {
+                                Value::Word(w) => {
+                                    if w.bit(15) == w.bit(14) {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    }
+                                },
+                                Value::Byte(b) => {
+                                    if b.bit(7) == b.bit(6) {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    }
+                                },
+                            };
+                        }
+                        let mut result = operand_value;
+                        match count {
+                            Value::Word(w) => {
+                                for _ in 0..w {
+                                    let before = result.clone();
+                                    result = match result {
+                                        Value::Word(w) => {
+                                            Value::Word(w << 1)
+                                        },
+                                        Value::Byte(b) => {
+                                            Value::Byte(b << 1)
+                                        },
+                                    };
+                                    self.update_carry_flag(&before, &result);
+                                }
+                            },
+                            _ => unreachable!(),
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &result);
+                            },
+                            Operand::Memory(m) => {
+                                // TODO: Refactor all these instances to a single call like
+                                // write_register
+                                match result {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
                     },
                     // SHR, modr/m
                     0b101 => {
@@ -4114,6 +4176,32 @@ mod tests {
                 assert_eq!(emulator.ram[address.0 as usize - 2], 0);
                 assert_eq!(emulator.ram[address.0 as usize - 3], 0x7c);
                 assert_eq!(emulator.ram[address.0 as usize - 4], 0x02);
+            }
+        }
+    }
+
+    #[test]
+    fn test_shl_1_bit_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // shl si,1
+        disk[0] = 0b11010001;
+        disk[1] = 0b11100110;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0b1010101010101010;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.si, 0b0101010101010100);
+                assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 1);
             }
         }
     }
