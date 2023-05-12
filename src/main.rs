@@ -2433,7 +2433,48 @@ impl Emulator {
                     },
                     // MUL, modr/m
                     0b100 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let register = match operand_size {
+                            OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                            OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                        };
+                        let register_value = self.cpu.read_register(&register);
+                        let result = match operand_value {
+                            Value::Byte(b) => b as u32 * match register_value {
+                                Value::Byte(b2) => b2 as u32,
+                                _ => unreachable!(),
+                            },
+                            Value::Word(w) => w as u32 * match register_value {
+                                Value::Word(w2) => w2 as u32,
+                                _ => unreachable!(),
+                            },
+                        };
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX), &Value::Word(result as u16));
+                                let high_order_bits = result as u16 >> 8;
+                                if high_order_bits > 0 {
+                                    self.cpu.flags |= Flags::CF.bits();
+                                    self.cpu.flags |= Flags::OF.bits();
+                                } else {
+                                    self.cpu.flags &= !Flags::CF.bits();
+                                    self.cpu.flags &= !Flags::OF.bits();
+                                }
+                            },
+                            OperandSize::Word => {
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX), &Value::Word(result as u16));
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX), &Value::Word((result >> 16) as u16));
+                                let high_order_bits = (result >> 16) as u16;
+                                if high_order_bits > 0 {
+                                    self.cpu.flags |= Flags::CF.bits();
+                                    self.cpu.flags |= Flags::OF.bits();
+                                } else {
+                                    self.cpu.flags &= !Flags::CF.bits();
+                                    self.cpu.flags &= !Flags::OF.bits();
+                                }
+                            },
+                        };
                     },
                     // IMUL, modr/m
                     0b101 => {
@@ -4420,6 +4461,35 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.cpu.dx, 0b1001010100000000);
                 assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_mul_word() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // mul bp
+        disk[0] = 0b11110111;
+        disk[1] = 0b11100101;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.bp = 10000;
+        emulator.cpu.ax = 10000;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.dx, 0b0000010111110101);
+                assert_eq!(emulator.cpu.ax, 0b1110000100000000);
+                assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 1);
+                assert_eq!((emulator.cpu.flags & Flags::OF.bits()).count_ones(), 1);
             }
         }
     }
