@@ -2597,7 +2597,27 @@ impl Emulator {
                     },
                     // NOT, modr/m
                     0b010 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let neg = match operand_value {
+                            Value::Byte(b) => Value::Byte(!b),
+                            Value::Word(w) => Value::Word(!w),
+                        };
+                        match operand {
+                            Operand::Register(r) => {
+                                self.cpu.write_register(&r, &neg);
+                            },
+                            Operand::Memory(m) => {
+                                match neg {
+                                    Value::Byte(b) => {
+                                        self.ram[m.0 as usize] = b
+                                    },
+                                    Value::Word(w) => {
+                                        self.write_word(&m, w);
+                                    },
+                                };
+                            },
+                        };
                     },
                     // MUL, modr/m
                     0b100 => {
