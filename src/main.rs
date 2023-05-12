@@ -1806,11 +1806,115 @@ impl Emulator {
                     },
                     // RCL, modr/m
                     0b010 => {
-                        // TODO
+                        let mut variable_shift = self.ram[address.0 as usize].bit(1);
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let count = match variable_shift {
+                            true => self.cpu.read_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL)),
+                            false => Value::Byte(1),
+                        };
+                        if count == Value::Byte(1) {
+                            variable_shift = false;
+                        }
+                        let mut result = operand_value;
+                        match count {
+                            Value::Byte(b) => {
+                                for _ in 0..b {
+                                    let before_msb;
+                                    result = match result {
+                                        Value::Word(w) => {
+                                            before_msb = w.bit(15);
+                                            Value::Word((w << 1) | ((self.cpu.flags & Flags::CF.bits()).count_ones() as u16))
+                                        },
+                                        Value::Byte(b) => {
+                                            before_msb = b.bit(7);
+                                            Value::Byte((b << 1) | ((self.cpu.flags & Flags::CF.bits()).count_ones() as u8))
+                                        },
+                                    };
+                                    if before_msb {
+                                        self.cpu.flags |= Flags::CF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::CF.bits();
+                                    }
+                                }
+                            },
+                            _ => unreachable!(),
+                        };
+                        if !variable_shift {
+                            match result {
+                                Value::Word(w) => {
+                                    if (w.bit(15) as u32 ^ (self.cpu.flags & Flags::CF.bits()).count_ones()) != 0 {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    }
+                                },
+                                Value::Byte(b) => {
+                                    if (b.bit(7) as u32 ^ (self.cpu.flags & Flags::CF.bits()).count_ones()) != 0 {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    }
+                                },
+                            };
+                        }
+                        self.write_operand(&operand, &result);
                     },
                     // RCR, modr/m
                     0b011 => {
-                        // TODO
+                        let mut variable_shift = self.ram[address.0 as usize].bit(1);
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let count = match variable_shift {
+                            true => self.cpu.read_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::CL)),
+                            false => Value::Byte(1),
+                        };
+                        if count == Value::Byte(1) {
+                            variable_shift = false;
+                        }
+                        let mut result = operand_value;
+                        match count {
+                            Value::Byte(b) => {
+                                for _ in 0..b {
+                                    let before_lsb;
+                                    result = match result {
+                                        Value::Word(w) => {
+                                            before_lsb = w.bit(0);
+                                            Value::Word((w >> 1) | (((self.cpu.flags & Flags::CF.bits()).count_ones() as u16) << 15))
+                                        },
+                                        Value::Byte(b) => {
+                                            before_lsb = b.bit(0);
+                                            Value::Byte((b >> 1) | (((self.cpu.flags & Flags::CF.bits()).count_ones() as u8) << 7))
+                                        },
+                                    };
+                                    if before_lsb {
+                                        self.cpu.flags |= Flags::CF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::CF.bits();
+                                    }
+                                }
+                            },
+                            _ => unreachable!(),
+                        };
+                        if !variable_shift {
+                            match result {
+                                Value::Word(w) => {
+                                    if (w.bit(15) as u32 ^ w.bit(14) as u32) != 0 {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    }
+                                },
+                                Value::Byte(b) => {
+                                    if (b.bit(7) as u32 ^ b.bit(6) as u32) != 0 {
+                                        self.cpu.flags |= Flags::OF.bits();
+                                    } else {
+                                        self.cpu.flags &= !Flags::OF.bits();
+                                    }
+                                },
+                            };
+                        }
+                        self.write_operand(&operand, &result);
                     },
                     _ => unreachable!(),
                 };
@@ -4262,6 +4366,60 @@ mod tests {
                 assert_eq!(emulator.cpu.si, 0b0100000000000001);
                 assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 1);
                 assert_eq!((emulator.cpu.flags & Flags::OF.bits()).count_ones(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_rcl_2_bits_byte_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // rcl dh,cl
+        disk[0] = 0b11010010;
+        disk[1] = 0b11010110;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.cx = 2;
+        emulator.cpu.dx = 0b1010101000000000;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.dx, 0b1010100100000000);
+                assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_rcr_3_bits_byte_register() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // rcr dh,cl
+        disk[0] = 0b11010010;
+        disk[1] = 0b11011110;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.cx = 3;
+        emulator.cpu.dx = 0b1010101000000000;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.dx, 0b1001010100000000);
+                assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 0);
             }
         }
     }
