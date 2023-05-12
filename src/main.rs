@@ -965,21 +965,7 @@ impl Emulator {
                         self.cpu.write_register(&register, &sum);
                     },
                     OperandDirection::ModRM => {
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &sum);
-                            },
-                            Operand::Memory(m) => {
-                                match sum {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                     },
                 }
                 self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
@@ -1014,21 +1000,7 @@ impl Emulator {
                         self.cpu.write_register(&register, &sum);
                     },
                     OperandDirection::ModRM => {
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &sum);
-                            },
-                            Operand::Memory(m) => {
-                                match sum {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                     },
                 }
                 self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
@@ -1074,21 +1046,7 @@ impl Emulator {
                         self.cpu.write_register(&register, &sum);
                     },
                     OperandDirection::ModRM => {
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &sum);
-                            },
-                            Operand::Memory(m) => {
-                                match sum {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                     },
                 }
                 self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
@@ -1173,21 +1131,7 @@ impl Emulator {
                         self.cpu.write_register(&register, &sum);
                     },
                     OperandDirection::ModRM => {
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &sum);
-                            },
-                            Operand::Memory(m) => {
-                                match sum {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                     },
                 }
                 self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
@@ -1267,30 +1211,7 @@ impl Emulator {
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
                         };
-                        match sum {
-                            Value::Byte(b) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.write_register(&r, &Value::Byte(b));
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.ram[m.0 as usize] = b;
-                                    },
-                                };
-                            },
-                            Value::Word(w) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
-                                            *r = w;
-                                        });
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
                     },
                     // ADC, modr/m, immediate
@@ -1323,30 +1244,7 @@ impl Emulator {
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
                         };
-                        match sum {
-                            Value::Byte(b) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.write_register(&r, &Value::Byte(b));
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.ram[m.0 as usize] = b;
-                                    },
-                                };
-                            },
-                            Value::Word(w) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
-                                            *r = w;
-                                        });
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
                     },
                     // SUB, modr/m, immediate
@@ -1378,30 +1276,7 @@ impl Emulator {
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
                         };
-                        match sum {
-                            Value::Byte(b) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.write_register(&r, &Value::Byte(b));
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.ram[m.0 as usize] = b;
-                                    },
-                                };
-                            },
-                            Value::Word(w) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
-                                            *r = w;
-                                        });
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
                     },
                     // CMP, modr/m, immediate
@@ -1465,30 +1340,7 @@ impl Emulator {
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
                         };
-                        match sum {
-                            Value::Byte(b) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.write_register(&r, &Value::Byte(b));
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.ram[m.0 as usize] = b;
-                                    },
-                                };
-                            },
-                            Value::Word(w) => {
-                                match operand {
-                                    Operand::Register(r) => {
-                                        self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
-                                            *r = w;
-                                        });
-                                    },
-                                    Operand::Memory(m) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
                     },
                     _ => (),
@@ -1520,22 +1372,7 @@ impl Emulator {
                         },
                         OperandDirection::ModRM => {
                             let register_value = self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(register));
-                            match operand {
-                                Operand::Register(r) => {
-                                    self.cpu.mutate_register(&r, |r: &mut u16, _h: RegisterHalf| {
-                                        match register_value {
-                                            Value::Word(w) => *r = w,
-                                            _ => unreachable!(),
-                                        };
-                                    });
-                                },
-                                Operand::Memory(m) => {
-                                    match register_value {
-                                        Value::Word(w) => self.write_word(&m, w),
-                                        _ => unreachable!(),
-                                    };
-                                },
-                            };
+                            self.write_operand(&operand, &register_value);
                         },
                     };
                 }
@@ -1738,23 +1575,7 @@ impl Emulator {
                             },
                             _ => unreachable!(),
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                // TODO: Refactor all these instances to a single call like
-                                // write_register
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &result);
                     },
                     // SHR, modr/m
                     0b101 => {
@@ -1819,21 +1640,7 @@ impl Emulator {
                             },
                             _ => unreachable!(),
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &result);
                     },
                     // SAR, modr/m
                     0b111 => {
@@ -1883,22 +1690,7 @@ impl Emulator {
                             },
                             _ => unreachable!(),
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
-
+                        self.write_operand(&operand, &result);
                     },
                     // ROL, modr/m
                     0b000 => {
@@ -1954,21 +1746,7 @@ impl Emulator {
                                 },
                             };
                         }
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &result);
                     },
                     // ROR, modr/m
                     0b001 => {
@@ -2024,21 +1802,7 @@ impl Emulator {
                                 },
                             };
                         }
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &result);
                     },
                     // RCL, modr/m
                     0b010 => {
@@ -2253,21 +2017,7 @@ impl Emulator {
                                 Value::Word((self.ram[address.0 as usize + 3] as u16) << 8 | self.ram[address.0 as usize + 2] as u16)
                             },
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &immediate);
-                            },
-                            Operand::Memory(m) => {
-                                match immediate {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &immediate);
                     },
                     _ => unreachable!(),
                 };
@@ -2316,21 +2066,7 @@ impl Emulator {
                 let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                 let operand_value = self.get_operand_value(&operand, &operand_size);
                 self.cpu.write_register(&register, &operand_value);
-                match operand {
-                    Operand::Register(r) => {
-                        self.cpu.write_register(&r, &register_value);
-                    },
-                    Operand::Memory(m) => {
-                        match register_value {
-                            Value::Byte(b) => {
-                                self.ram[m.0 as usize] = b
-                            },
-                            Value::Word(w) => {
-                                self.write_word(&m, w);
-                            },
-                        };
-                    },
-                };
+                self.write_operand(&operand, &register_value);
             },
             // IN, direct
             0b1110010 => {
@@ -2574,21 +2310,7 @@ impl Emulator {
                             Value::Byte(b) => Value::Byte((b as i8).neg() as u8),
                             Value::Word(w) => Value::Word((w as i16).neg() as u16),
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &neg);
-                            },
-                            Operand::Memory(m) => {
-                                match neg {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &neg);
                         let zero = match operand_size {
                             OperandSize::Byte => Value::Byte(0u8),
                             OperandSize::Word => Value::Word(0u16),
@@ -2599,25 +2321,11 @@ impl Emulator {
                     0b010 => {
                         let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
                         let operand_value = self.get_operand_value(&operand, &operand_size);
-                        let neg = match operand_value {
+                        let not = match operand_value {
                             Value::Byte(b) => Value::Byte(!b),
                             Value::Word(w) => Value::Word(!w),
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &neg);
-                            },
-                            Operand::Memory(m) => {
-                                match neg {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &not);
                     },
                     // MUL, modr/m
                     0b100 => {
@@ -2696,21 +2404,7 @@ impl Emulator {
                                 _ => unreachable!(),
                             },
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &result);
                         self.cpu.flags &= !Flags::CF.bits();
                         self.cpu.flags &= !Flags::OF.bits();
                         self.update_flags("SZP", None, Some(result), None);
@@ -2739,21 +2433,7 @@ impl Emulator {
                                 _ => unreachable!(),
                             },
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &result);
                         self.cpu.flags &= !Flags::CF.bits();
                         self.cpu.flags &= !Flags::OF.bits();
                         self.update_flags("SZP", None, Some(result), None);
@@ -2782,21 +2462,7 @@ impl Emulator {
                                 _ => unreachable!(),
                             },
                         };
-                        match operand {
-                            Operand::Register(r) => {
-                                self.cpu.write_register(&r, &result);
-                            },
-                            Operand::Memory(m) => {
-                                match result {
-                                    Value::Byte(b) => {
-                                        self.ram[m.0 as usize] = b
-                                    },
-                                    Value::Word(w) => {
-                                        self.write_word(&m, w);
-                                    },
-                                };
-                            },
-                        };
+                        self.write_operand(&operand, &result);
                         self.cpu.flags &= !Flags::CF.bits();
                         self.cpu.flags &= !Flags::OF.bits();
                         self.update_flags("SZP", None, Some(result), None);
@@ -3199,6 +2865,28 @@ impl Emulator {
     fn write_word(&mut self, m: &U20, w: u16) {
         self.ram[m.0 as usize] = w as u8;
         self.ram[(m.0 + 1) as usize] = (w >> 8) as u8
+    }
+
+    fn write_mem(&mut self, address: &U20, value: &Value) {
+        match value {
+            Value::Byte(b) => {
+                self.ram[address.0 as usize] = *b
+            },
+            Value::Word(w) => {
+                self.write_word(&address, *w);
+            },
+        };
+    }
+
+    fn write_operand(&mut self, operand: &Operand, value: &Value) {
+        match operand {
+            Operand::Register(r) => {
+                self.cpu.write_register(&r, &value);
+            },
+            Operand::Memory(m) => {
+                self.write_mem(&m, &value);
+            },
+        };
     }
 
     fn pop_word_into_operand(&mut self, operand: &Operand) {
