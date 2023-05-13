@@ -549,7 +549,18 @@ impl Emulator {
         }
         // LOOP
         if self.ram[address.0 as usize] == 0b11100010 {
-            // TODO
+            instruction_size += 1;
+            let mut count = match self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX)) {
+                Value::Word(w) => w,
+                _ => unreachable!(),
+            };
+            count -= 1;
+            self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX), &Value::Word(count));
+            if count != 0 {
+                let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+                self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                return Ok(())
+            }
         }
         // JCXZ
         if self.ram[address.0 as usize] == 0b11100011 {
@@ -4804,6 +4815,33 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.ax, 0b1111111111111111);
+            }
+        }
+    }
+
+    #[test]
+    fn test_loop() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // inc bp
+        disk[0] = 0b01000101;
+        // loop "-1"
+        disk[1] = 0b11100010;
+        disk[2] = 0b11111111;
+        // hlt
+        disk[3] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.cx = 3;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.bp, 3);
             }
         }
     }
