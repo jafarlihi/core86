@@ -2587,7 +2587,53 @@ impl Emulator {
                     },
                     // DIV, modr/m
                     0b110 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let register = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX);
+                        let register_value: u16 = match self.cpu.read_register(&register) {
+                            Value::Word(w) => w,
+                            _ => unreachable!(),
+                        };
+                        let register2 = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX);
+                        let register2_value: u16 = match self.cpu.read_register(&register2) {
+                            Value::Word(w) => w,
+                            _ => unreachable!(),
+                        };
+                        match operand_value {
+                            Value::Byte(b) => {
+                                if b == 0 {
+                                    // TODO: DE
+                                }
+                            },
+                            Value::Word(w) => {
+                                if w == 0 {
+                                    // TODO: DE
+                                }
+                            },
+                            _ => unreachable!(),
+                        };
+                        match operand_value {
+                            Value::Byte(b) => {
+                                let result = register_value / b as u16;
+                                let remainder = register_value % b as u16;
+                                if result > 0xFF {
+                                    // TODO: DE
+                                }
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL), &Value::Byte(result as u8));
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(remainder as u8));
+                            },
+                            Value::Word(w) => {
+                                let dividend = (register2_value as u32) << 16 | register_value as u32;
+                                let result = dividend / w as u32;
+                                let remainder = dividend % w as u32;
+                                if result > 0xFFFF {
+                                    // TODO: DE
+                                }
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX), &Value::Word(result as u16));
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX), &Value::Word(remainder as u16));
+                            },
+                            _ => unreachable!(),
+                        };
                     },
                     // IDIV, modr/m
                     0b111 => {
@@ -4641,6 +4687,34 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.cpu.dx, 65535);
                 assert_eq!(emulator.cpu.ax, 65534);
+            }
+        }
+    }
+
+    #[test]
+    fn test_div_word() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // div bp
+        disk[0] = 0b11110111;
+        disk[1] = 0b11110101;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.bp = 3;
+        emulator.cpu.dx = 0;
+        emulator.cpu.ax = 10;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ax, 3);
+                assert_eq!(emulator.cpu.dx, 1);
             }
         }
     }
