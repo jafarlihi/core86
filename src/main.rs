@@ -812,31 +812,36 @@ impl Emulator {
         }
         // CLC
         if self.ram[address.0 as usize] == 0b11111000 {
-            // TODO
+            self.cpu.flags &= !Flags::CF.bits();
         }
         // CMC
         if self.ram[address.0 as usize] == 0b11110101 {
-            // TODO
+            let carry = (self.cpu.flags & Flags::CF.bits()).count_ones();
+            if carry != 0 {
+                self.cpu.flags &= !Flags::CF.bits();
+            } else {
+                self.cpu.flags |= Flags::CF.bits();
+            }
         }
         // STC
         if self.ram[address.0 as usize] == 0b11111001 {
-            // TODO
+            self.cpu.flags |= Flags::CF.bits();
         }
         // CLD
         if self.ram[address.0 as usize] == 0b11111100 {
-            // TODO
+            self.cpu.flags &= !Flags::DF.bits();
         }
         // STD
         if self.ram[address.0 as usize] == 0b11111101 {
-            // TODO
+            self.cpu.flags |= Flags::DF.bits();
         }
         // CLI
         if self.ram[address.0 as usize] == 0b11111010 {
-            // TODO
+            self.cpu.flags &= !Flags::IF.bits();
         }
         // STI
         if self.ram[address.0 as usize] == 0b11111011 {
-            // TODO
+            self.cpu.flags |= Flags::IF.bits();
         }
         // WAIT
         if self.ram[address.0 as usize] == 0b10011011 {
