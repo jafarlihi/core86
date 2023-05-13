@@ -3050,11 +3050,23 @@ impl Emulator {
         }
         // CBW
         if self.ram[address.0 as usize] == 0b10011000 {
-            // TODO
+            let register = RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL);
+            let register_value = self.cpu.read_register(&register);
+            let result = match register_value {
+                Value::Byte(b) => Value::Word(sign_extend(b)),
+                _ => unreachable!(),
+            };
+            self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX), &result);
         }
         // CWD
         if self.ram[address.0 as usize] == 0b10011001 {
-            // TODO
+            let register = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX);
+            let register_value = self.cpu.read_register(&register);
+            let result = match register_value {
+                Value::Word(w) => Value::Word((sign_extend_16(w) >> 16) as u16),
+                _ => unreachable!(),
+            };
+            self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX), &result);
         }
         // DAA
         if self.ram[address.0 as usize] == 0b00100111 {
