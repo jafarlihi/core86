@@ -857,6 +857,7 @@ impl Emulator {
         // WAIT
         if self.ram[address.0 as usize] == 0b10011011 {
             // TODO
+            // No-op?
         }
         // LOCK
         if self.ram[address.0 as usize] == 0b11110000 {
@@ -958,6 +959,8 @@ impl Emulator {
             // ESC, modr/m
             0b11011 => {
                 // TODO
+                // No-op?
+                instruction_size += 1;
             },
             _ => (),
         }
@@ -1985,7 +1988,20 @@ impl Emulator {
         match self.ram[address.0 as usize] >> 1 {
             // LOOPNZ/LOOPZ
             0b1110000 => {
-                // TODO
+                instruction_size += 1;
+                let not_z = self.ram[address.0 as usize].bit(0);
+                let mut count = match self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX)) {
+                    Value::Word(w) => w,
+                    _ => unreachable!(),
+                };
+                let valid = (not_z && (self.cpu.flags & Flags::ZF.bits()).count_ones() == 0) || (!not_z && (self.cpu.flags & Flags::ZF.bits()).count_ones() != 0);
+                count -= 1;
+                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX), &Value::Word(count));
+                if count != 0 && valid {
+                    let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+                    self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
+                    return Ok(())
+                }
             },
             // TEST, modr/m
             0b1000010 => {
