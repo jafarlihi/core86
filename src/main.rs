@@ -236,6 +236,7 @@ impl CPU {
 enum Value {
     Byte(u8),
     Word(u16),
+    Dword(u32),
 }
 
 impl TryFrom<u8> for Value {
@@ -309,6 +310,15 @@ fn sign_extend(value: u8) -> u16 {
     let mut result = value as u16;
     if sign {
         result |= 0xFF00;
+    }
+    result
+}
+
+fn sign_extend_16(value: u16) -> u32 {
+    let sign = value.bit(15);
+    let mut result = value as u32;
+    if sign {
+        result |= 0xFFFF0000;
     }
     result
 }
@@ -959,6 +969,7 @@ impl Emulator {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
+                    _ => unreachable!(),
                 };
                 match direction {
                     OperandDirection::Register => {
@@ -994,6 +1005,7 @@ impl Emulator {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
+                    _ => unreachable!(),
                 };
                 match direction {
                     OperandDirection::Register => {
@@ -1029,6 +1041,7 @@ impl Emulator {
                             Value::Word(w2) => w2,
                             _ => unreachable!(),
                         }).try_into().unwrap(),
+                        _ => unreachable!(),
                     },
                     OperandDirection::Register => match register_value {
                         Value::Byte(b) => (b - match operand_value {
@@ -1039,6 +1052,7 @@ impl Emulator {
                             Value::Word(w2) => w2,
                             _ => unreachable!(),
                         }).try_into().unwrap(),
+                        _ => unreachable!(),
                     },
                 };
                 match direction {
@@ -1075,6 +1089,7 @@ impl Emulator {
                             Value::Word(w2) => w2,
                             _ => unreachable!(),
                         }).try_into().unwrap(),
+                        _ => unreachable!(),
                     },
                     OperandDirection::Register => match register_value {
                         Value::Byte(b) => (b - match operand_value {
@@ -1085,6 +1100,7 @@ impl Emulator {
                             Value::Word(w2) => w2,
                             _ => unreachable!(),
                         }).try_into().unwrap(),
+                        _ => unreachable!(),
                     },
                 };
                 self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
@@ -1114,6 +1130,7 @@ impl Emulator {
                             Value::Word(w2) => w2,
                             _ => unreachable!(),
                         }).try_into().unwrap(),
+                        _ => unreachable!(),
                     },
                     OperandDirection::Register => match register_value {
                         Value::Byte(b) => (b - cf as u8 - match operand_value {
@@ -1124,6 +1141,7 @@ impl Emulator {
                             Value::Word(w2) => w2,
                             _ => unreachable!(),
                         }).try_into().unwrap(),
+                        _ => unreachable!(),
                     },
                 };
                 match direction {
@@ -1168,6 +1186,7 @@ impl Emulator {
                                     _ => unreachable!(),
                                 };
                             },
+                            _ => unreachable!(),
                         };
                     },
                 };
@@ -1210,6 +1229,7 @@ impl Emulator {
                                 Value::Word(w2) => w2,
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
@@ -1243,6 +1263,7 @@ impl Emulator {
                                 Value::Word(w2) => w2,
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(true));
@@ -1275,6 +1296,7 @@ impl Emulator {
                                 Value::Word(w2) => w2,
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
@@ -1307,6 +1329,7 @@ impl Emulator {
                                 Value::Word(w2) => w2,
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
+                            _ => unreachable!(),
                         };
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
                     },
@@ -1339,6 +1362,7 @@ impl Emulator {
                                 Value::Word(w2) => w2,
                                 _ => unreachable!(),
                             }).try_into().unwrap(),
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &sum);
                         self.update_flags("CZSOPA", Some(operand_value), Some(sum), Some(false));
@@ -1399,6 +1423,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b & b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 match direction {
                     OperandDirection::Register => {
@@ -1418,6 +1443,7 @@ impl Emulator {
                                     _ => unreachable!(),
                                 };
                             },
+                            _ => unreachable!(),
                         };
                     },
                 };
@@ -1447,6 +1473,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b | b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 match direction {
                     OperandDirection::Register => {
@@ -1466,6 +1493,7 @@ impl Emulator {
                                     _ => unreachable!(),
                                 };
                             },
+                            _ => unreachable!(),
                         };
                     },
                 };
@@ -1495,6 +1523,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b ^ b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 match direction {
                     OperandDirection::Register => {
@@ -1514,6 +1543,7 @@ impl Emulator {
                                     _ => unreachable!(),
                                 };
                             },
+                            _ => unreachable!(),
                         };
                     },
                 };
@@ -1555,6 +1585,7 @@ impl Emulator {
                                         self.cpu.flags |= Flags::OF.bits();
                                     }
                                 },
+                                _ => unreachable!(),
                             };
                         }
                         let mut result = operand_value;
@@ -1569,6 +1600,7 @@ impl Emulator {
                                         Value::Byte(b) => {
                                             Value::Byte(b << 1)
                                         },
+                                        _ => unreachable!(),
                                     };
                                     self.update_carry_flag(&before, &result);
                                 }
@@ -1605,6 +1637,7 @@ impl Emulator {
                                         self.cpu.flags &= !Flags::OF.bits();
                                     }
                                 },
+                                _ => unreachable!(),
                             };
                         }
                         let mut result = operand_value;
@@ -1619,6 +1652,7 @@ impl Emulator {
                                         Value::Byte(b) => {
                                             Value::Byte(b >> 1)
                                         },
+                                        _ => unreachable!(),
                                     };
                                     match before {
                                         Value::Word(w) => {
@@ -1635,6 +1669,7 @@ impl Emulator {
                                                 self.cpu.flags &= !Flags::CF.bits();
                                             }
                                         },
+                                        _ => unreachable!(),
                                     };
                                 }
                             },
@@ -1669,6 +1704,7 @@ impl Emulator {
                                         Value::Byte(b) => {
                                             Value::Byte(((b as i8) >> 1) as u8)
                                         },
+                                        _ => unreachable!(),
                                     };
                                     match before {
                                         Value::Word(w) => {
@@ -1685,6 +1721,7 @@ impl Emulator {
                                                 self.cpu.flags &= !Flags::CF.bits();
                                             }
                                         },
+                                        _ => unreachable!(),
                                     };
                                 }
                             },
@@ -1718,6 +1755,7 @@ impl Emulator {
                                             before_msb = b.bit(7);
                                             Value::Byte(b.rotate_left(1))
                                         },
+                                        _ => unreachable!(),
                                     };
                                     if before_msb {
                                         self.cpu.flags |= Flags::CF.bits();
@@ -1744,6 +1782,7 @@ impl Emulator {
                                         self.cpu.flags &= !Flags::OF.bits();
                                     }
                                 },
+                                _ => unreachable!(),
                             };
                         }
                         self.write_operand(&operand, &result);
@@ -1774,6 +1813,7 @@ impl Emulator {
                                             before_lsb = b.bit(0);
                                             Value::Byte(b.rotate_right(1))
                                         },
+                                        _ => unreachable!(),
                                     };
                                     if before_lsb {
                                         self.cpu.flags |= Flags::CF.bits();
@@ -1800,6 +1840,7 @@ impl Emulator {
                                         self.cpu.flags &= !Flags::OF.bits();
                                     }
                                 },
+                                _ => unreachable!(),
                             };
                         }
                         self.write_operand(&operand, &result);
@@ -1830,6 +1871,7 @@ impl Emulator {
                                             before_msb = b.bit(7);
                                             Value::Byte((b << 1) | ((self.cpu.flags & Flags::CF.bits()).count_ones() as u8))
                                         },
+                                        _ => unreachable!(),
                                     };
                                     if before_msb {
                                         self.cpu.flags |= Flags::CF.bits();
@@ -1856,6 +1898,7 @@ impl Emulator {
                                         self.cpu.flags &= !Flags::OF.bits();
                                     }
                                 },
+                                _ => unreachable!(),
                             };
                         }
                         self.write_operand(&operand, &result);
@@ -1886,6 +1929,7 @@ impl Emulator {
                                             before_lsb = b.bit(0);
                                             Value::Byte((b >> 1) | (((self.cpu.flags & Flags::CF.bits()).count_ones() as u8) << 7))
                                         },
+                                        _ => unreachable!(),
                                     };
                                     if before_lsb {
                                         self.cpu.flags |= Flags::CF.bits();
@@ -1912,6 +1956,7 @@ impl Emulator {
                                         self.cpu.flags &= !Flags::OF.bits();
                                     }
                                 },
+                                _ => unreachable!(),
                             };
                         }
                         self.write_operand(&operand, &result);
@@ -1947,6 +1992,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b & b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 self.cpu.flags &= !Flags::CF.bits();
                 self.cpu.flags &= !Flags::OF.bits();
@@ -2154,6 +2200,7 @@ impl Emulator {
                 match value {
                     Value::Byte(b) => self.ram[address.0 as usize] = b,
                     Value::Word(w) => self.write_word(&address, w),
+                    _ => unreachable!(),
                 };
             },
             // XCHG, modr/m
@@ -2255,6 +2302,7 @@ impl Emulator {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
+                    _ => unreachable!(),
                 };
                 self.cpu.write_register(&register, &sum);
                 self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(true));
@@ -2291,6 +2339,7 @@ impl Emulator {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
+                    _ => unreachable!(),
                 };
                 self.cpu.write_register(&register, &sum);
                 self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(true));
@@ -2326,6 +2375,7 @@ impl Emulator {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
+                    _ => unreachable!(),
                 };
                 self.cpu.write_register(&register, &sum);
                 self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(false));
@@ -2361,6 +2411,7 @@ impl Emulator {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
+                    _ => unreachable!(),
                 };
                 self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(false));
             },
@@ -2396,6 +2447,7 @@ impl Emulator {
                         Value::Word(w2) => w2,
                         _ => unreachable!(),
                     }).try_into().unwrap(),
+                    _ => unreachable!(),
                 };
                 self.cpu.write_register(&register, &sum);
                 self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(false));
@@ -2413,6 +2465,7 @@ impl Emulator {
                         let neg = match operand_value {
                             Value::Byte(b) => Value::Byte((b as i8).neg() as u8),
                             Value::Word(w) => Value::Word((w as i16).neg() as u16),
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &neg);
                         let zero = match operand_size {
@@ -2428,6 +2481,7 @@ impl Emulator {
                         let not = match operand_value {
                             Value::Byte(b) => Value::Byte(!b),
                             Value::Word(w) => Value::Word(!w),
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &not);
                     },
@@ -2449,6 +2503,7 @@ impl Emulator {
                                 Value::Word(w2) => w2 as u32,
                                 _ => unreachable!(),
                             },
+                            _ => unreachable!(),
                         };
                         match operand_size {
                             OperandSize::Byte => {
@@ -2478,7 +2533,57 @@ impl Emulator {
                     },
                     // IMUL, modr/m
                     0b101 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let register = match operand_size {
+                            OperandSize::Byte => RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL),
+                            OperandSize::Word => RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX),
+                        };
+                        let register_value = self.cpu.read_register(&register);
+                        let result = match operand_value {
+                            Value::Byte(b) => Value::Word((b as i16 * match register_value {
+                                Value::Byte(b2) => b2 as i16,
+                                _ => unreachable!(),
+                            }) as u16),
+                            Value::Word(w) => Value::Dword((sign_extend_16(w) as i32 * match register_value {
+                                Value::Word(w2) => sign_extend_16(w2) as i32,
+                                _ => unreachable!(),
+                            }) as u32),
+                            _ => unreachable!(),
+                        };
+                        match operand_size {
+                            OperandSize::Byte => {
+                                match result {
+                                    Value::Word(w) => {
+                                        self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX), &Value::Word(w));
+                                        if sign_extend(w.bits(0..8) as u8) == w {
+                                            self.cpu.flags |= Flags::CF.bits();
+                                            self.cpu.flags |= Flags::OF.bits();
+                                        } else {
+                                            self.cpu.flags &= !Flags::CF.bits();
+                                            self.cpu.flags &= !Flags::OF.bits();
+                                        }
+                                    },
+                                    _ => unreachable!(),
+                                };
+                            },
+                            OperandSize::Word => {
+                                match result {
+                                    Value::Dword(dw) => {
+                                        self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX), &Value::Word(dw as u16));
+                                        self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX), &Value::Word((dw >> 16) as u16));
+                                        if sign_extend_16(dw.bits(0..16) as u16) == dw {
+                                            self.cpu.flags |= Flags::CF.bits();
+                                            self.cpu.flags |= Flags::OF.bits();
+                                        } else {
+                                            self.cpu.flags &= !Flags::CF.bits();
+                                            self.cpu.flags &= !Flags::OF.bits();
+                                        }
+                                    },
+                                    _ => unreachable!(),
+                                };
+                            },
+                        };
                     },
                     // DIV, modr/m
                     0b110 => {
@@ -2511,6 +2616,7 @@ impl Emulator {
                                 Value::Byte(b2) => Value::Byte(b & b2),
                                 _ => unreachable!(),
                             },
+                            _ => unreachable!(),
                         };
                         self.cpu.flags &= !Flags::CF.bits();
                         self.cpu.flags &= !Flags::OF.bits();
@@ -2548,6 +2654,7 @@ impl Emulator {
                                 Value::Byte(b2) => Value::Byte(b & b2),
                                 _ => unreachable!(),
                             },
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &result);
                         self.cpu.flags &= !Flags::CF.bits();
@@ -2577,6 +2684,7 @@ impl Emulator {
                                 Value::Byte(b2) => Value::Byte(b | b2),
                                 _ => unreachable!(),
                             },
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &result);
                         self.cpu.flags &= !Flags::CF.bits();
@@ -2606,6 +2714,7 @@ impl Emulator {
                                 Value::Byte(b2) => Value::Byte(b ^ b2),
                                 _ => unreachable!(),
                             },
+                            _ => unreachable!(),
                         };
                         self.write_operand(&operand, &result);
                         self.cpu.flags &= !Flags::CF.bits();
@@ -2642,6 +2751,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b & b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 self.cpu.write_register(&register, &result);
                 self.cpu.flags &= !Flags::CF.bits();
@@ -2675,6 +2785,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b | b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 self.cpu.write_register(&register, &result);
                 self.cpu.flags &= !Flags::CF.bits();
@@ -2709,6 +2820,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b ^ b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 self.cpu.write_register(&register, &result);
                 self.cpu.flags &= !Flags::CF.bits();
@@ -2742,6 +2854,7 @@ impl Emulator {
                         Value::Byte(b2) => Value::Byte(b & b2),
                         _ => unreachable!(),
                     },
+                    _ => unreachable!(),
                 };
                 self.cpu.flags &= !Flags::CF.bits();
                 self.cpu.flags &= !Flags::OF.bits();
@@ -2887,6 +3000,7 @@ impl Emulator {
             // TODO
             Value::Byte(b) => (),
             Value::Word(w) => (),
+            _ => unreachable!(),
         }
     }
 
@@ -2915,10 +3029,12 @@ impl Emulator {
         let msb_before = match before {
             Value::Byte(b) => b >> 7,
             Value::Word(w) => (w >> 15) as u8,
+            _ => unreachable!(),
         };
         let msb_after = match after {
             Value::Byte(b) => b >> 7,
             Value::Word(w) => (w >> 15) as u8,
+            _ => unreachable!(),
         };
         if msb_before != msb_after {
             self.cpu.flags |= Flags::CF.bits();
@@ -2931,6 +3047,7 @@ impl Emulator {
         let lsb = match after {
             Value::Byte(b) => *b,
             Value::Word(w) => *w as u8,
+            _ => unreachable!(),
         };
         let parity = lsb.count_ones() % 2 == 0;
         if parity  {
@@ -2944,10 +3061,12 @@ impl Emulator {
         let third_bit_before = match before {
             Value::Byte(b) => (b >> 3) & 0b00000001,
             Value::Word(w) => ((w >> 3) as u8) & 0b00000001,
+            _ => unreachable!(),
         };
         let third_bit_after = match after {
             Value::Byte(b) => (b >> 3) & 0b00000001,
             Value::Word(w) => ((w >> 3) as u8) & 0b00000001,
+            _ => unreachable!(),
         };
         if third_bit_before != third_bit_after {
             self.cpu.flags |= Flags::AF.bits();
@@ -2960,6 +3079,7 @@ impl Emulator {
         let is_zero = match after {
             Value::Byte(b) => *b == 0,
             Value::Word(w) => *w == 0,
+            _ => unreachable!(),
         };
         if is_zero {
             self.cpu.flags |= Flags::ZF.bits();
@@ -2972,6 +3092,7 @@ impl Emulator {
         let sign = match after {
             Value::Byte(b) => (b >> 7) == 1,
             Value::Word(w) => ((w >> 15) as u8) == 1,
+            _ => unreachable!(),
         };
         if sign {
             self.cpu.flags |= Flags::SF.bits();
@@ -2984,10 +3105,12 @@ impl Emulator {
         let value_before = match before {
             Value::Byte(b) => *b as u16,
             Value::Word(w) => *w,
+            _ => unreachable!(),
         };
         let value_after = match after {
             Value::Byte(b) => *b as u16,
             Value::Word(w) => *w,
+            _ => unreachable!(),
         };
         // TODO: What if overflows and becomes the same value?
         let overflow = (*increasing && value_before > value_after) || (!*increasing && value_before < value_after);
@@ -3020,6 +3143,7 @@ impl Emulator {
             Value::Word(w) => {
                 self.write_word(&address, *w);
             },
+            _ => unreachable!(),
         };
     }
 
@@ -4490,6 +4614,33 @@ mod tests {
                 assert_eq!(emulator.cpu.ax, 0b1110000100000000);
                 assert_eq!((emulator.cpu.flags & Flags::CF.bits()).count_ones(), 1);
                 assert_eq!((emulator.cpu.flags & Flags::OF.bits()).count_ones(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_imul_word() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // imul bp
+        disk[0] = 0b11110111;
+        disk[1] = 0b11101101;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.bp = (-1 as i16) as u16;
+        emulator.cpu.ax = 2;
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.dx, 65535);
+                assert_eq!(emulator.cpu.ax, 65534);
             }
         }
     }
