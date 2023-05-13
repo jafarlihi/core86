@@ -2637,7 +2637,53 @@ impl Emulator {
                     },
                     // IDIV, modr/m
                     0b111 => {
-                        // TODO
+                        let operand = self.get_operand_by_modrm(&address, &modrm.0, &modrm.2, &segment_override);
+                        let operand_value = self.get_operand_value(&operand, &operand_size);
+                        let register = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX);
+                        let register_value: u16 = match self.cpu.read_register(&register) {
+                            Value::Word(w) => w,
+                            _ => unreachable!(),
+                        };
+                        let register2 = RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX);
+                        let register2_value: u16 = match self.cpu.read_register(&register2) {
+                            Value::Word(w) => w,
+                            _ => unreachable!(),
+                        };
+                        match operand_value {
+                            Value::Byte(b) => {
+                                if b == 0 {
+                                    // TODO: DE
+                                }
+                            },
+                            Value::Word(w) => {
+                                if w == 0 {
+                                    // TODO: DE
+                                }
+                            },
+                            _ => unreachable!(),
+                        };
+                        match operand_value {
+                            Value::Byte(b) => {
+                                let result = register_value as i16 / b as i16;
+                                let remainder = register_value as i16 % b as i16;
+                                if result > 0x7F || result < 0x80 {
+                                    // TODO: DE
+                                }
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL), &Value::Byte(result as u8));
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(remainder as u8));
+                            },
+                            Value::Word(w) => {
+                                let dividend = (register2_value as i32) << 16 | register_value as i32;
+                                let result = dividend / w as i32;
+                                let remainder = dividend % w as i32;
+                                if result > 0x7FFF || result < 0x8000 {
+                                    // TODO: DE
+                                }
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX), &Value::Word(result as u16));
+                                self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::DX), &Value::Word(remainder as u16));
+                            },
+                            _ => unreachable!(),
+                        };
                     },
                     // TEST, modr/m, immediate
                     0b000 => {
@@ -4715,6 +4761,32 @@ mod tests {
             Err(_error) => {
                 assert_eq!(emulator.cpu.ax, 3);
                 assert_eq!(emulator.cpu.dx, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn test_idiv_byte() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // idiv ch
+        disk[0] = 0b11110110;
+        disk[1] = 0b11111101;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.cx = 0b0000001000000000; // 2
+        emulator.cpu.ax = 0b1111111111111101; // -3
+        let run = emulator.run();
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ax, 0b1111111111111111);
             }
         }
     }
