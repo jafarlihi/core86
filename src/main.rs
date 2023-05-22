@@ -3,6 +3,8 @@ use std::ops::Neg;
 use bitflags::bitflags;
 use num_enum::TryFromPrimitive;
 use intbits::Bits;
+use ncurses::*;
+use codepage_437::{IntoCp437, CP437_CONTROL, FromCp437};
 
 #[derive(Debug, Copy, Clone)]
 enum RegisterEncoding {
@@ -337,14 +339,44 @@ impl Emulator {
         }
     }
 
-    fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn load_bootsector(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.disk[510] != 0x55 && self.disk[511] != 0xAA {
             return Err("Disk not bootable".into());
         }
         self.ram[0x7c00..0x7c00 + 512].copy_from_slice(&self.disk[..512]);
         self.cpu.cs = 0x0000;
         self.cpu.ip = 0x7c00;
+        Ok(())
+    }
+
+    fn update_mda_screen(&self) {
+        let address = U20::new(0xb000, 0x0000);
+        let vector: Vec<u8> =
+            self.ram[address.0 as usize..address.0 as usize + 25 * 80 * 2]
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| i % 2 == 0)
+                .map(|(_, byte)| *byte)
+                .collect();
+        let unicode = String::from_cp437(vector, &CP437_CONTROL);
+        let unicode = unicode.replace('\0', " ");
+        let mut line = 0;
+        let mut column = 0;
+        for u in unicode.into_bytes() {
+            mvaddch(line, column, u as u32);
+            column += 1;
+            if column == 80 {
+                column = 0;
+                line += 1;
+            }
+        }
+        refresh();
+    }
+
+    fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.load_bootsector().unwrap();
         loop {
+            self.update_mda_screen();
             match self.execute() {
                 Ok(()) => (),
                 Err(error) => return Err(error),
@@ -3408,7 +3440,21 @@ impl U20 {
 }
 
 fn main() {
-    panic!("Nothing here yet");
+    let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+    disk[510] = 0x55;
+    disk[511] = 0xAA;
+
+    // hlt
+    disk[0] = 0xF4;
+
+    let mut emulator = Emulator::new(disk);
+
+    initscr();
+    let _ = emulator.run();
+    loop {
+        getch();
+    }
 }
 
 #[cfg(test)]

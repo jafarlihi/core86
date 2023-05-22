@@ -7,5 +7,7 @@ edition = "2021"
 
 [dependencies]
 bitflags = "2.2.1"
+codepage-437 = "0.1.0"
 intbits = "0.2.0"
 num_enum = "0.6.1"
+ncurses = "5.101.0"
