@@ -1,10 +1,16 @@
 use std::convert::TryFrom;
 use std::ops::Neg;
+use std::collections::VecDeque;
 use bitflags::bitflags;
 use num_enum::TryFromPrimitive;
 use intbits::Bits;
 use ncurses::*;
-use codepage_437::{IntoCp437, CP437_CONTROL, FromCp437};
+use codepage_437::{CP437_CONTROL, FromCp437};
+
+const BIOS_SEG: u16 = 0xF000;
+const ROM_CONFIGURATION_ADDR: u16 = 0xE6F5;
+const EQUIPMENT_SEG: u16 = 0x0040;
+const EQUIPMENT_ADDR: u16 = 0x0010;
 
 #[derive(Debug, Copy, Clone)]
 enum RegisterEncoding {
@@ -100,6 +106,7 @@ struct CPU {
     es: u16,
     ss: u16,
     flags: u16,
+    interrupts: VecDeque<u8>,
 }
 
 enum RegisterHalf {
@@ -125,6 +132,7 @@ impl CPU {
             es: 0,
             ss: 0,
             flags: 0,
+            interrupts: VecDeque::<u8>::new(),
         }
     }
 
@@ -339,6 +347,56 @@ impl Emulator {
         }
     }
 
+    fn execute_isr(&mut self, int: u8) {
+        match int {
+            0x11 => {
+                self.cpu.ax = self.read_word(&U20::new(EQUIPMENT_SEG, EQUIPMENT_ADDR));
+            },
+            _ => unimplemented!(),
+        };
+    }
+
+    fn jump_to_interrupt_vector(&mut self, int: u8, insn_size: u16) {
+        self.push_word(self.cpu.flags);
+        self.cpu.flags &= !Flags::IF.bits();
+        self.cpu.flags &= !Flags::TF.bits();
+        self.push_word(self.cpu.cs);
+        self.push_word(self.cpu.ip + insn_size);
+        let vector_addr = int as u16 * 4;
+        let isr_ip = self.read_word(&U20::new(0, vector_addr));
+        let isr_cs = self.read_word(&U20::new(0, vector_addr + 2));
+        self.cpu.cs = isr_cs;
+        self.cpu.ip = isr_ip - insn_size;
+    }
+
+    fn iret(&mut self) {
+        self.cpu.ip = self.pop_word();
+        self.cpu.cs = self.pop_word();
+        self.cpu.flags = self.pop_word();
+    }
+
+    fn service_interrupts(&mut self) {
+        if (self.cpu.flags & Flags::IF.bits()) != 0 && !self.cpu.interrupts.is_empty() {
+            let int = self.cpu.interrupts.pop_front().unwrap();
+            self.jump_to_interrupt_vector(int, 0);
+        }
+    }
+
+    fn init_rom_configuration(&mut self) {
+        self.write_word(&U20::new(BIOS_SEG, ROM_CONFIGURATION_ADDR), 8);
+        self.write_mem(&U20::new(BIOS_SEG, ROM_CONFIGURATION_ADDR + 2), &Value::Byte(0xFC));
+        self.write_word(&U20::new(EQUIPMENT_SEG, EQUIPMENT_ADDR), 0x21);
+    }
+
+    fn init_ivt(&mut self) {
+        const IRET: u8 = 0b11001111;
+        for int in 0..0xFF {
+            self.write_word(&U20::new(0, int * 4), int);
+            self.write_word(&U20::new(0, int * 4 + 2), BIOS_SEG);
+            self.write_mem(&U20::new(BIOS_SEG, int), &Value::Byte(IRET));
+        }
+    }
+
     fn load_bootsector(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.disk[510] != 0x55 && self.disk[511] != 0xAA {
             return Err("Disk not bootable".into());
@@ -373,9 +431,15 @@ impl Emulator {
         refresh();
     }
 
-    fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn run(&mut self, dont_init_ivt: bool) -> Result<(), Box<dyn std::error::Error>> {
+        self.init_rom_configuration();
+        // TODO: Fix tests and remove this conditional
+        if !dont_init_ivt {
+            self.init_ivt();
+        }
         self.load_bootsector().unwrap();
         loop {
+            self.service_interrupts();
             self.update_mda_screen();
             match self.execute() {
                 Ok(()) => (),
@@ -559,6 +623,9 @@ impl Emulator {
     // TODO: Dispatch table?
     // TODO: Exceptions
     fn execute(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.cpu.cs == BIOS_SEG {
+            self.execute_isr(self.cpu.ip as u8);
+        }
         let mut address = U20::new(self.cpu.cs, self.cpu.ip);
         // HLT
         if self.ram[address.0 as usize] == 0b11110100 {
@@ -836,9 +903,16 @@ impl Emulator {
                 return Ok(())
             }
         }
+        // IRET
+        if self.ram[address.0 as usize] == 0b11001111 {
+            instruction_size -= 1;
+            self.iret();
+        }
         // INT, specified type
         if self.ram[address.0 as usize] == 0b11001101 {
-            // TODO
+            instruction_size += 1;
+            let immediate = self.ram[address.0 as usize + 1];
+            self.jump_to_interrupt_vector(immediate, 2);
         }
         // INT, type 3
         if self.ram[address.0 as usize] == 0b11001100 {
@@ -846,10 +920,6 @@ impl Emulator {
         }
         // INTO
         if self.ram[address.0 as usize] == 0b11001110 {
-            // TODO
-        }
-        // IRET
-        if self.ram[address.0 as usize] == 0b11001111 {
             // TODO
         }
         // CLC
@@ -3451,7 +3521,7 @@ fn main() {
     let mut emulator = Emulator::new(disk);
 
     initscr();
-    let _ = emulator.run();
+    let _ = emulator.run(false);
     loop {
         getch();
     }
@@ -3474,7 +3544,7 @@ mod tests {
         disk[1] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3498,7 +3568,7 @@ mod tests {
         disk[2] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3523,7 +3593,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.bx = 0b0000000011111111;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3548,7 +3618,7 @@ mod tests {
         disk[3] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3577,7 +3647,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.es = 0x666;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3606,7 +3676,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.ds = 0x666;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3634,7 +3704,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.bx = 0b0000000000000010;
         emulator.cpu.cx = 0b0000000100000000;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3659,7 +3729,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.cx = 0xFFFF;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3685,7 +3755,7 @@ mod tests {
         disk[3] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3711,7 +3781,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.bx = 0x666;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3740,7 +3810,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.di = 0xCAFE;
         emulator.cpu.bx = 0xBABE;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3766,7 +3836,7 @@ mod tests {
         disk[4] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3794,7 +3864,7 @@ mod tests {
         let address = U20::new(emulator.cpu.ds, 0x7FF8);
         emulator.ram[address.0 as usize] = 0xAD;
         emulator.ram[address.0 as usize + 1] = 0xDE;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3820,7 +3890,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.ax = 0xDEAD;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3847,7 +3917,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.si = 0xDEAD;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3874,7 +3944,7 @@ mod tests {
         emulator.cpu.ss = 0x00A8;
         emulator.cpu.sp = 0x000C;
         emulator.cpu.bx = 0xA01F;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3903,7 +3973,7 @@ mod tests {
         emulator.cpu.ss = 0x00A8;
         emulator.cpu.sp = 0x000C;
         emulator.cpu.bx = 0xA01F;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3932,7 +4002,7 @@ mod tests {
         emulator.cpu.ss = 0x00A8;
         emulator.cpu.sp = 0x000C;
         emulator.cpu.ds = 0xA01F;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3964,7 +4034,7 @@ mod tests {
         let address = U20::new(0x00A8, 0x000A);
         emulator.ram[address.0 as usize] = 0x1F;
         emulator.ram[address.0 as usize + 1] = 0xA0;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -3993,7 +4063,7 @@ mod tests {
         let address = U20::new(0x00A8, 0x000A);
         emulator.ram[address.0 as usize] = 0x1F;
         emulator.ram[address.0 as usize + 1] = 0xA0;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4022,7 +4092,7 @@ mod tests {
         let address = U20::new(0x00A8, 0x000A);
         emulator.ram[address.0 as usize] = 0x1F;
         emulator.ram[address.0 as usize + 1] = 0xA0;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4049,7 +4119,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.dx = 0xFFFF;
         emulator.cpu.bx = 0xAAAA;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4075,7 +4145,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.ax = 0xFFFF;
         emulator.cpu.bp = 0xAAAA;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4105,7 +4175,7 @@ mod tests {
         emulator.ram[0x00AB] = 0xFF;
         emulator.ram[0x00AC] = 0xFA;
         emulator.ram[0x00AD] = 0xFF;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4131,7 +4201,7 @@ mod tests {
         disk[4] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4158,7 +4228,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.si = 0x01;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4185,7 +4255,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.si = 0xFFFF;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4212,7 +4282,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.si = 0x0F11;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4246,7 +4316,7 @@ mod tests {
         emulator.ram[address.0 as usize + 1] = 0x3C;
         emulator.ram[address.0 as usize + 2] = 0xA5;
         emulator.ram[address.0 as usize + 3] = 0x87;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4271,7 +4341,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.flags = Flags::SF.bits() | Flags::AF.bits();
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4295,7 +4365,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.ax = 0b1001001000000000;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4320,7 +4390,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.sp = 2;
         emulator.cpu.flags = 0xFFFF;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4346,7 +4416,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.ram[0] = 0xFF;
         emulator.ram[1] = 0xFF;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4371,7 +4441,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.ax = 0x0011;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4396,7 +4466,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.bx = 0xFFFF;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4423,7 +4493,7 @@ mod tests {
         emulator.cpu.di = 0xFF;
         emulator.cpu.bp = 0x01;
         emulator.cpu.flags = Flags::CF.bits() | Flags::ZF.bits();
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4453,7 +4523,7 @@ mod tests {
         disk[4] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4482,7 +4552,7 @@ mod tests {
         disk[5] = 0xF4;
 
         let mut emulator = Emulator::new(disk);
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4514,7 +4584,7 @@ mod tests {
         emulator.ram[address.0 as usize] = 0b01000101;
         // hlt
         emulator.ram[address.0 as usize + 1] = 0xF4;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4541,7 +4611,7 @@ mod tests {
         emulator.cpu.bx = 0x09;
         emulator.ram[9] = 0b01000101;
         emulator.ram[10] = 0xF4;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4573,7 +4643,7 @@ mod tests {
         let address = U20::new(0x2, 0x2);
         emulator.ram[address.0 as usize] = 0b01000101;
         emulator.ram[address.0 as usize + 1] = 0xF4;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4607,7 +4677,7 @@ mod tests {
         let address = U20::new(0x2, 0x2);
         emulator.ram[address.0 as usize] = 0b01000101;
         emulator.ram[address.0 as usize + 1] = 0xF4;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4637,7 +4707,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.si = 0b1010101010101010;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4668,7 +4738,7 @@ mod tests {
         emulator.cpu.di = 23;
         let address = U20::new(0, 23);
         emulator.ram[address.0 as usize] = 0b01010111;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4694,7 +4764,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.cx = 0b1010101000000000;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4720,7 +4790,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.si = 0b1010000000000000;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4748,7 +4818,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.cx = 2;
         emulator.cpu.dx = 0b1010101000000000;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4775,7 +4845,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.cx = 3;
         emulator.cpu.dx = 0b1010101000000000;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4802,7 +4872,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.bp = 10000;
         emulator.cpu.ax = 10000;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4831,7 +4901,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.bp = (-1 as i16) as u16;
         emulator.cpu.ax = 2;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4859,7 +4929,7 @@ mod tests {
         emulator.cpu.bp = 3;
         emulator.cpu.dx = 0;
         emulator.cpu.ax = 10;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4886,7 +4956,7 @@ mod tests {
         let mut emulator = Emulator::new(disk);
         emulator.cpu.cx = 0b0000001000000000; // 2
         emulator.cpu.ax = 0b1111111111111101; // -3
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4913,7 +4983,7 @@ mod tests {
 
         let mut emulator = Emulator::new(disk);
         emulator.cpu.cx = 3;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
@@ -4944,12 +5014,37 @@ mod tests {
         emulator.cpu.di = 1;
         let address = U20::new(emulator.cpu.es, emulator.cpu.di + 0x20);
         emulator.ram[address.0 as usize] = 0x10;
-        let run = emulator.run();
+        let run = emulator.run(true);
 
         match run {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.ram[address.0 as usize], 0x10 | 0x20);
+            }
+        }
+    }
+
+    #[test]
+    fn test_basic_interrupt() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // int 0x11
+        disk[0] = 0xCD;
+        disk[1] = 0x11;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.ss = 0x0F00;
+        let run = emulator.run(false);
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.ax, 0x21);
             }
         }
     }
