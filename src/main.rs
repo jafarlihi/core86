@@ -634,16 +634,18 @@ impl Emulator {
         let mut instruction_size = 1;
         let mut segment_override: Option<SegmentRegister> = None;
         let mut rep_while_zero: Option<bool> = None;
+        // REP
+        if self.ram[address.0 as usize] >> 1 == 0b1111001 {
+            instruction_size += 1;
+            let while_equal_zero = self.ram[address.0 as usize].bit(0);
+            rep_while_zero = Some(while_equal_zero);
+            address = U20::new(self.cpu.cs, self.cpu.ip + 1);
+        }
         // Segment override prefix
         if self.ram[address.0 as usize] >> 5 == 0b00000001 && self.ram[address.0 as usize] & 0b00000111 == 0b00000110 {
             instruction_size += 1;
             segment_override = Some(((self.ram[address.0 as usize] & 0b00011000) >> 3).try_into().unwrap());
             address = U20::new(self.cpu.cs, self.cpu.ip + 1);
-        }
-        // REP
-        if self.ram[address.0 as usize] >> 1 == 0b1111001 {
-            let while_equal_zero = self.ram[address.0 as usize].bit(0);
-            rep_while_zero = Some(while_equal_zero);
         }
         // LOOP
         if self.ram[address.0 as usize] == 0b11100010 {
@@ -1033,7 +1035,7 @@ impl Emulator {
             },
             // MOVS
             0b1010010 => {
-                /* TODO
+                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let source_segment = match segment_override {
                     Some(ref s) => s,
                     None => &SegmentRegister::DS,
@@ -1044,8 +1046,38 @@ impl Emulator {
                     SegmentRegister::DS => self.cpu.ds,
                     SegmentRegister::SS => self.cpu.ss,
                 };
-                let source = U20::new(source_segment, )
-                */
+                let source = U20::new(source_segment, self.cpu.read_register16(&RegisterEncoding16::SI));
+                let destination = U20::new(self.cpu.es, self.cpu.read_register16(&RegisterEncoding16::DI));
+                match operand_size {
+                    OperandSize::Byte => self.ram[destination.0 as usize] = self.ram[source.0 as usize],
+                    OperandSize::Word => {
+                        let value = self.read_word(&source);
+                        self.write_word(&destination, value);
+                    },
+                };
+                if self.cpu.flags & Flags::DF.bits() == 0 {
+                    match operand_size {
+                        OperandSize::Byte => {
+                            self.cpu.si += 1;
+                            self.cpu.di += 1;
+                        },
+                        OperandSize::Word => {
+                            self.cpu.si += 2;
+                            self.cpu.di += 2;
+                        },
+                    };
+                } else {
+                    match operand_size {
+                        OperandSize::Byte => {
+                            self.cpu.si -= 1;
+                            self.cpu.di -= 1;
+                        },
+                        OperandSize::Word => {
+                            self.cpu.si -= 2;
+                            self.cpu.di -= 2;
+                        },
+                    };
+                }
             },
             // CMPS
             0b1010011 => {
@@ -5059,6 +5091,40 @@ mod tests {
             Ok(()) => (),
             Err(_error) => {
                 assert_eq!(emulator.cpu.ax, 0b0000000000110001);
+            }
+        }
+    }
+
+    #[test]
+    fn test_movs_word() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // movsw
+        disk[0] = 0b10100101;
+        // hlt
+        disk[1] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x5;
+        emulator.cpu.di = 0x3;
+        emulator.cpu.ds = 0x10;
+        emulator.cpu.es = 0x30;
+        let source_addr = U20::new(emulator.cpu.ds, emulator.cpu.si);
+        let dest_addr = U20::new(emulator.cpu.es, emulator.cpu.di);
+        emulator.ram[source_addr.0 as usize] = 0xBA;
+        emulator.ram[source_addr.0 as usize + 1] = 0xBE;
+        let run = emulator.run(true);
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.si, 0x5 + 2);
+                assert_eq!(emulator.cpu.di, 0x3 + 2);
+                assert_eq!(emulator.ram[dest_addr.0 as usize], 0xBA);
+                assert_eq!(emulator.ram[dest_addr.0 as usize + 1], 0xBE);
             }
         }
     }
