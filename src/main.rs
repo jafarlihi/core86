@@ -1291,7 +1291,46 @@ impl Emulator {
             },
             // STOS
             0b1010101 => {
-                // TODO
+                loop {
+                    let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                    let destination = U20::new(self.cpu.es, self.cpu.read_register16(&RegisterEncoding16::DI));
+                    match operand_size {
+                        OperandSize::Byte => self.ram[destination.0 as usize] = self.cpu.read_register8(&RegisterEncoding8::AL),
+                        OperandSize::Word => self.write_word(&destination, self.cpu.read_register16(&RegisterEncoding16::AX)),
+                    };
+                    if self.cpu.flags & Flags::DF.bits() == 0 {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si += 1;
+                                self.cpu.di += 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si += 2;
+                                self.cpu.di += 2;
+                            },
+                        };
+                    } else {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si -= 1;
+                                self.cpu.di -= 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si -= 2;
+                                self.cpu.di -= 2;
+                            },
+                        };
+                    }
+                    match rep_while_zero {
+                        None => break,
+                        _ => {
+                            self.cpu.cx -= 1;
+                            if self.cpu.cx == 0 {
+                                break;
+                            }
+                        },
+                    };
+                }
             },
             0b1111111 => {
                 instruction_size += 1;
