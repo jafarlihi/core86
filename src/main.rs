@@ -1035,46 +1035,57 @@ impl Emulator {
             },
             // MOVS
             0b1010010 => {
-                let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
-                let source_segment = match segment_override {
-                    Some(ref s) => s,
-                    None => &SegmentRegister::DS,
-                };
-                let source_segment = match source_segment {
-                    SegmentRegister::ES => self.cpu.es,
-                    SegmentRegister::CS => self.cpu.cs,
-                    SegmentRegister::DS => self.cpu.ds,
-                    SegmentRegister::SS => self.cpu.ss,
-                };
-                let source = U20::new(source_segment, self.cpu.read_register16(&RegisterEncoding16::SI));
-                let destination = U20::new(self.cpu.es, self.cpu.read_register16(&RegisterEncoding16::DI));
-                match operand_size {
-                    OperandSize::Byte => self.ram[destination.0 as usize] = self.ram[source.0 as usize],
-                    OperandSize::Word => {
-                        let value = self.read_word(&source);
-                        self.write_word(&destination, value);
-                    },
-                };
-                if self.cpu.flags & Flags::DF.bits() == 0 {
+                loop {
+                    let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                    let source_segment = match segment_override {
+                        Some(ref s) => s,
+                        None => &SegmentRegister::DS,
+                    };
+                    let source_segment = match source_segment {
+                        SegmentRegister::ES => self.cpu.es,
+                        SegmentRegister::CS => self.cpu.cs,
+                        SegmentRegister::DS => self.cpu.ds,
+                        SegmentRegister::SS => self.cpu.ss,
+                    };
+                    let source = U20::new(source_segment, self.cpu.read_register16(&RegisterEncoding16::SI));
+                    let destination = U20::new(self.cpu.es, self.cpu.read_register16(&RegisterEncoding16::DI));
                     match operand_size {
-                        OperandSize::Byte => {
-                            self.cpu.si += 1;
-                            self.cpu.di += 1;
-                        },
+                        OperandSize::Byte => self.ram[destination.0 as usize] = self.ram[source.0 as usize],
                         OperandSize::Word => {
-                            self.cpu.si += 2;
-                            self.cpu.di += 2;
+                            let value = self.read_word(&source);
+                            self.write_word(&destination, value);
                         },
                     };
-                } else {
-                    match operand_size {
-                        OperandSize::Byte => {
-                            self.cpu.si -= 1;
-                            self.cpu.di -= 1;
-                        },
-                        OperandSize::Word => {
-                            self.cpu.si -= 2;
-                            self.cpu.di -= 2;
+                    if self.cpu.flags & Flags::DF.bits() == 0 {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si += 1;
+                                self.cpu.di += 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si += 2;
+                                self.cpu.di += 2;
+                            },
+                        };
+                    } else {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si -= 1;
+                                self.cpu.di -= 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si -= 2;
+                                self.cpu.di -= 2;
+                            },
+                        };
+                    }
+                    match rep_while_zero {
+                        None => break,
+                        _ => {
+                            self.cpu.cx -= 1;
+                            if self.cpu.cx == 0 {
+                                break;
+                            }
                         },
                     };
                 }
@@ -5125,6 +5136,47 @@ mod tests {
                 assert_eq!(emulator.cpu.di, 0x3 + 2);
                 assert_eq!(emulator.ram[dest_addr.0 as usize], 0xBA);
                 assert_eq!(emulator.ram[dest_addr.0 as usize + 1], 0xBE);
+            }
+        }
+    }
+
+    #[test]
+    fn test_movs_byte_rep() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // rep movsb
+        disk[0] = 0b11110011;
+        disk[1] = 0b10100100;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x5;
+        emulator.cpu.di = 0x3;
+        emulator.cpu.ds = 0x10;
+        emulator.cpu.es = 0x30;
+        emulator.cpu.cx = 0x3;
+        let source_addr = U20::new(emulator.cpu.ds, emulator.cpu.si);
+        let dest_addr = U20::new(emulator.cpu.es, emulator.cpu.di);
+        emulator.ram[source_addr.0 as usize] = 0xBA;
+        emulator.ram[source_addr.0 as usize + 1] = 0xBE;
+        emulator.ram[source_addr.0 as usize + 2] = 0xCA;
+        emulator.ram[source_addr.0 as usize + 3] = 0xFE;
+        let run = emulator.run(true);
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.si, 0x5 + 3);
+                assert_eq!(emulator.cpu.di, 0x3 + 3);
+                assert_eq!(emulator.cpu.cx, 0);
+                assert_eq!(emulator.ram[dest_addr.0 as usize], 0xBA);
+                assert_eq!(emulator.ram[dest_addr.0 as usize + 1], 0xBE);
+                assert_eq!(emulator.ram[dest_addr.0 as usize + 2], 0xCA);
+                assert_eq!(emulator.ram[dest_addr.0 as usize + 3], 0x0);
             }
         }
     }
