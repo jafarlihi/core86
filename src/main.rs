@@ -1092,7 +1092,79 @@ impl Emulator {
             },
             // CMPS
             0b1010011 => {
-                // TODO
+                loop {
+                    let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                    let source_segment = match segment_override {
+                        Some(ref s) => s,
+                        None => &SegmentRegister::DS,
+                    };
+                    let source_segment = match source_segment {
+                        SegmentRegister::ES => self.cpu.es,
+                        SegmentRegister::CS => self.cpu.cs,
+                        SegmentRegister::DS => self.cpu.ds,
+                        SegmentRegister::SS => self.cpu.ss,
+                    };
+                    let source1 = U20::new(source_segment, self.cpu.read_register16(&RegisterEncoding16::SI));
+                    let source2 = U20::new(self.cpu.es, self.cpu.read_register16(&RegisterEncoding16::DI));
+                    let source1_value = match operand_size {
+                        OperandSize::Byte => Value::Byte(self.ram[source1.0 as usize]),
+                        OperandSize::Word => Value::Word(self.read_word(&source1)),
+                    };
+                    let source2_value = match operand_size {
+                        OperandSize::Byte => Value::Byte(self.ram[source2.0 as usize]),
+                        OperandSize::Word => Value::Word(self.read_word(&source2)),
+                    };
+                    let sum: Value = match source1_value {
+                        Value::Byte(b) => Value::Byte(b - match source2_value {
+                            Value::Byte(b2) => b2,
+                            _ => unreachable!(),
+                        }),
+                        Value::Word(w) => Value::Word(w - match source2_value {
+                            Value::Word(w2) => w2,
+                            _ => unreachable!(),
+                        }),
+                        _ => unreachable!(),
+                    };
+                    self.update_flags("CZSOPA", Some(source1_value), Some(sum), Some(false));
+                    if self.cpu.flags & Flags::DF.bits() == 0 {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si += 1;
+                                self.cpu.di += 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si += 2;
+                                self.cpu.di += 2;
+                            },
+                        };
+                    } else {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si -= 1;
+                                self.cpu.di -= 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si -= 2;
+                                self.cpu.di -= 2;
+                            },
+                        };
+                    }
+                    match rep_while_zero {
+                        None => break,
+                        Some(b) => {
+                            self.cpu.cx -= 1;
+                            if self.cpu.cx == 0 {
+                                break;
+                            }
+                            if b && self.cpu.flags & Flags::ZF.bits() == 0 {
+                                break;
+                            }
+                            if !b && self.cpu.flags & Flags::ZF.bits() != 0 {
+                                break;
+                            }
+                        },
+                    };
+                }
             },
             // SCAS
             0b1010111 => {
@@ -5177,6 +5249,88 @@ mod tests {
                 assert_eq!(emulator.ram[dest_addr.0 as usize + 1], 0xBE);
                 assert_eq!(emulator.ram[dest_addr.0 as usize + 2], 0xCA);
                 assert_eq!(emulator.ram[dest_addr.0 as usize + 3], 0x0);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cmps_byte_repne() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // repne cmpsb
+        disk[0] = 0xF2;
+        disk[1] = 0xA6;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x5;
+        emulator.cpu.di = 0x3;
+        emulator.cpu.ds = 0x10;
+        emulator.cpu.es = 0x30;
+        emulator.cpu.cx = 0x3;
+        let source_addr = U20::new(emulator.cpu.ds, emulator.cpu.si);
+        let dest_addr = U20::new(emulator.cpu.es, emulator.cpu.di);
+        emulator.ram[source_addr.0 as usize] = 0xBA;
+        emulator.ram[source_addr.0 as usize + 1] = 0xBE;
+        emulator.ram[source_addr.0 as usize + 2] = 0xCA;
+        emulator.ram[source_addr.0 as usize + 3] = 0xFE;
+        emulator.ram[dest_addr.0 as usize] = 0xBA;
+        emulator.ram[dest_addr.0 as usize + 1] = 0xBE;
+        emulator.ram[dest_addr.0 as usize + 2] = 0xCA;
+        emulator.ram[dest_addr.0 as usize + 3] = 0xFE;
+        let run = emulator.run(true);
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.si, 0x5 + 1);
+                assert_eq!(emulator.cpu.di, 0x3 + 1);
+                assert_eq!(emulator.cpu.cx, 2);
+            }
+        }
+    }
+
+    #[test]
+    fn test_cmps_byte_repe() {
+        let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+
+        disk[510] = 0x55;
+        disk[511] = 0xAA;
+
+        // repe cmpsb
+        disk[0] = 0xF3;
+        disk[1] = 0xA6;
+        // hlt
+        disk[2] = 0xF4;
+
+        let mut emulator = Emulator::new(disk);
+        emulator.cpu.si = 0x5;
+        emulator.cpu.di = 0x3;
+        emulator.cpu.ds = 0x10;
+        emulator.cpu.es = 0x30;
+        emulator.cpu.cx = 0x3;
+        let source_addr = U20::new(emulator.cpu.ds, emulator.cpu.si);
+        let dest_addr = U20::new(emulator.cpu.es, emulator.cpu.di);
+        emulator.ram[source_addr.0 as usize] = 0xBA;
+        emulator.ram[source_addr.0 as usize + 1] = 0xBE;
+        emulator.ram[source_addr.0 as usize + 2] = 0xCA;
+        emulator.ram[source_addr.0 as usize + 3] = 0xFE;
+        emulator.ram[dest_addr.0 as usize] = 0xBA;
+        emulator.ram[dest_addr.0 as usize + 1] = 0xBE;
+        emulator.ram[dest_addr.0 as usize + 2] = 0xCA;
+        emulator.ram[dest_addr.0 as usize + 3] = 0xFE;
+        let run = emulator.run(true);
+
+        match run {
+            Ok(()) => (),
+            Err(_error) => {
+                assert_eq!(emulator.cpu.si, 0x5 + 3);
+                assert_eq!(emulator.cpu.di, 0x3 + 3);
+                assert_eq!(emulator.cpu.cx, 0);
             }
         }
     }
