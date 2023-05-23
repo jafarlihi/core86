@@ -385,7 +385,7 @@ impl Emulator {
     fn init_rom_configuration(&mut self) {
         self.write_word(&U20::new(BIOS_SEG, ROM_CONFIGURATION_ADDR), 8);
         self.write_mem(&U20::new(BIOS_SEG, ROM_CONFIGURATION_ADDR + 2), &Value::Byte(0xFC));
-        self.write_word(&U20::new(EQUIPMENT_SEG, EQUIPMENT_ADDR), 0x21);
+        self.write_word(&U20::new(EQUIPMENT_SEG, EQUIPMENT_ADDR), 0b0000000000110001);
     }
 
     fn init_ivt(&mut self) {
@@ -916,11 +916,13 @@ impl Emulator {
         }
         // INT, type 3
         if self.ram[address.0 as usize] == 0b11001100 {
-            // TODO
+            self.jump_to_interrupt_vector(3, 1);
         }
         // INTO
         if self.ram[address.0 as usize] == 0b11001110 {
-            // TODO
+            if self.cpu.flags & Flags::OF.bits() != 0 {
+                self.jump_to_interrupt_vector(4, 1);
+            }
         }
         // CLC
         if self.ram[address.0 as usize] == 0b11111000 {
@@ -1031,7 +1033,19 @@ impl Emulator {
             },
             // MOVS
             0b1010010 => {
-                // TODO
+                /* TODO
+                let source_segment = match segment_override {
+                    Some(ref s) => s,
+                    None => &SegmentRegister::DS,
+                };
+                let source_segment = match source_segment {
+                    SegmentRegister::ES => self.cpu.es,
+                    SegmentRegister::CS => self.cpu.cs,
+                    SegmentRegister::DS => self.cpu.ds,
+                    SegmentRegister::SS => self.cpu.ss,
+                };
+                let source = U20::new(source_segment, )
+                */
             },
             // CMPS
             0b1010011 => {
@@ -5044,7 +5058,7 @@ mod tests {
         match run {
             Ok(()) => (),
             Err(_error) => {
-                assert_eq!(emulator.cpu.ax, 0x21);
+                assert_eq!(emulator.cpu.ax, 0b0000000000110001);
             }
         }
     }
