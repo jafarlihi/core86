@@ -1168,7 +1168,68 @@ impl Emulator {
             },
             // SCAS
             0b1010111 => {
-                // TODO
+                loop {
+                    let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
+                    let source = U20::new(self.cpu.es, self.cpu.read_register16(&RegisterEncoding16::DI));
+                    let source_value = match operand_size {
+                        OperandSize::Byte => Value::Byte(self.ram[source.0 as usize]),
+                        OperandSize::Word => Value::Word(self.read_word(&source)),
+                    };
+                    let register_value = match operand_size {
+                        OperandSize::Byte => self.cpu.read_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL)),
+                        OperandSize::Word => self.cpu.read_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::AX)),
+                    };
+                    let sum: Value = match register_value {
+                        Value::Byte(b) => Value::Byte(b - match source_value {
+                            Value::Byte(b2) => b2,
+                            _ => unreachable!(),
+                        }),
+                        Value::Word(w) => Value::Word(w - match source_value {
+                            Value::Word(w2) => w2,
+                            _ => unreachable!(),
+                        }),
+                        _ => unreachable!(),
+                    };
+                    self.update_flags("CZSOPA", Some(register_value), Some(sum), Some(false));
+                    if self.cpu.flags & Flags::DF.bits() == 0 {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si += 1;
+                                self.cpu.di += 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si += 2;
+                                self.cpu.di += 2;
+                            },
+                        };
+                    } else {
+                        match operand_size {
+                            OperandSize::Byte => {
+                                self.cpu.si -= 1;
+                                self.cpu.di -= 1;
+                            },
+                            OperandSize::Word => {
+                                self.cpu.si -= 2;
+                                self.cpu.di -= 2;
+                            },
+                        };
+                    }
+                    match rep_while_zero {
+                        None => break,
+                        Some(b) => {
+                            self.cpu.cx -= 1;
+                            if self.cpu.cx == 0 {
+                                break;
+                            }
+                            if b && self.cpu.flags & Flags::ZF.bits() == 0 {
+                                break;
+                            }
+                            if !b && self.cpu.flags & Flags::ZF.bits() != 0 {
+                                break;
+                            }
+                        },
+                    };
+                }
             },
             // LODS
             0b1010110 => {
