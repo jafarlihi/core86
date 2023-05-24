@@ -685,7 +685,7 @@ impl Emulator {
         // JCXZ
         if self.ram[address.0 as usize] == 0b11100011 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.cx == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -696,7 +696,7 @@ impl Emulator {
             // instruction_size += 2;
             let diff = (self.ram[address.0 as usize + 1] as u16
                 | ((self.ram[address.0 as usize + 2] as u16)) << 8)
-                as i16;
+                as i16 + 2;
             self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
             return Ok(())
         }
@@ -725,7 +725,7 @@ impl Emulator {
             instruction_size += 2;
             let diff = (self.ram[address.0 as usize + 1] as u16
                 | ((self.ram[address.0 as usize + 2] as u16)) << 8)
-                as i16;
+                as i16 + 3;
             self.push_word(self.cpu.ip + instruction_size);
             self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
             return Ok(())
@@ -782,7 +782,7 @@ impl Emulator {
         // JE/JZ
         if self.ram[address.0 as usize] == 0b01110100 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::ZF.bits() == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -791,7 +791,7 @@ impl Emulator {
         // JNE/JNZ
         if self.ram[address.0 as usize] == 0b01110101 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::ZF.bits() != 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -800,7 +800,7 @@ impl Emulator {
         // JL/JNGE
         if self.ram[address.0 as usize] == 0b01111100 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if (self.cpu.flags & Flags::SF.bits()).count_ones() != (self.cpu.flags & Flags::OF.bits()).count_ones() {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -809,7 +809,7 @@ impl Emulator {
         // JNL/JGE
         if self.ram[address.0 as usize] == 0b01111101 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if (self.cpu.flags & Flags::SF.bits()).count_ones() == (self.cpu.flags & Flags::OF.bits()).count_ones() {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -818,7 +818,7 @@ impl Emulator {
         // JLE/JNG
         if self.ram[address.0 as usize] == 0b01111110 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if (self.cpu.flags & Flags::SF.bits()).count_ones() != (self.cpu.flags & Flags::OF.bits()).count_ones()
                 && self.cpu.flags & Flags::ZF.bits() != 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
@@ -828,7 +828,7 @@ impl Emulator {
         // JNLE/JG
         if self.ram[address.0 as usize] == 0b01111111 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if (self.cpu.flags & Flags::SF.bits()).count_ones() == (self.cpu.flags & Flags::OF.bits()).count_ones()
                 && self.cpu.flags & Flags::ZF.bits() == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
@@ -838,7 +838,7 @@ impl Emulator {
         // JB/JNAE
         if self.ram[address.0 as usize] == 0b01110010 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::CF.bits() != 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -847,7 +847,7 @@ impl Emulator {
         // JNB/JAE
         if self.ram[address.0 as usize] == 0b01110011 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::CF.bits() == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -856,7 +856,7 @@ impl Emulator {
         // JBE/JNA
         if self.ram[address.0 as usize] == 0b01110110 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::CF.bits() != 0 || self.cpu.flags & Flags::ZF.bits() != 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -865,7 +865,7 @@ impl Emulator {
         // JNBE/JA
         if self.ram[address.0 as usize] == 0b01110111 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::CF.bits() == 0 && self.cpu.flags & Flags::ZF.bits() == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -874,7 +874,7 @@ impl Emulator {
         // JP/JPE
         if self.ram[address.0 as usize] == 0b01111010 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::PF.bits() != 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -883,7 +883,7 @@ impl Emulator {
         // JNP/JPO
         if self.ram[address.0 as usize] == 0b01111011 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::PF.bits() == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -892,7 +892,7 @@ impl Emulator {
         // JO
         if self.ram[address.0 as usize] == 0b01110000 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::OF.bits() != 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -901,7 +901,7 @@ impl Emulator {
         // JNO
         if self.ram[address.0 as usize] == 0b01110001 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::OF.bits() == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -910,7 +910,7 @@ impl Emulator {
         // JS
         if self.ram[address.0 as usize] == 0b01111000 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::SF.bits() != 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -919,7 +919,7 @@ impl Emulator {
         // JNS
         if self.ram[address.0 as usize] == 0b01111001 {
             instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             if self.cpu.flags & Flags::SF.bits() == 0 {
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
@@ -3849,9 +3849,10 @@ fn main() {
         let bytes = &emulator.ram[address.0 as usize..address.0 as usize + 20];
         let mut decoder = Decoder::with_ip(16, bytes, 0, DecoderOptions::NONE);
         let instruction = decoder.decode();
-        mvprintw(26, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
-        let instruction = decoder.decode();
+        mvprintw(26, 0, &format!("{} {}                        ", emulator.cpu.cs, emulator.cpu.ip));
         mvprintw(27, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
+        let instruction = decoder.decode();
+        mvprintw(28, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
         step(&mut emulator).unwrap();
     }
 }
@@ -5354,7 +5355,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_interrupt() {
+    fn test_interrupt() {
         let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
 
         disk[510] = 0x55;
