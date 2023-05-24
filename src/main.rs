@@ -349,9 +349,11 @@ impl Emulator {
 
     fn execute_isr(&mut self, int: u8) {
         match int {
+            // Equipment fetch
             0x11 => {
                 self.cpu.ax = self.read_word(&U20::new(EQUIPMENT_SEG, EQUIPMENT_ADDR));
             },
+            // Disk services
             0x13 => {
                 let disk = self.cpu.read_register8(&RegisterEncoding8::DL);
                 let argument = self.cpu.read_register8(&RegisterEncoding8::AH);
@@ -366,14 +368,45 @@ impl Emulator {
                 }
                 match argument {
                     0x0 => {
+                        // Success code == 0x0
                         self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x0));
+                        // CF = !Success
+                        self.cpu.flags &= !Flags::CF.bits();
+                    },
+                    0x2 => {
+                        let sectors = self.cpu.read_register8(&RegisterEncoding8::AL);
+                        let head = self.cpu.read_register8(&RegisterEncoding8::DH);
+                        let cx = self.cpu.read_register16(&RegisterEncoding16::CX);
+                        let address = U20::new(self.cpu.read_register16(&RegisterEncoding16::ES), self.cpu.read_register16(&RegisterEncoding16::BX));
+                        let cylinder = ((cx & 0xFf00) >> 8) + ((cx & 0x00C0) << 2);
+                        let sector = (cx & 0x003F) as u8;
+                        let bytes_read = self.read_chs(address, cylinder, head, sector, sectors);
+                        self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x0));
+                        self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL), &Value::Byte(bytes_read));
                         self.cpu.flags &= !Flags::CF.bits();
                     },
                     _ => unimplemented!(),
                 };
             },
+            // Disk change
+            0x16 => {
+                self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x0));
+                self.cpu.flags &= !Flags::CF.bits();
+            },
             _ => unimplemented!(),
         };
+    }
+
+    fn read_chs(&mut self, address: U20, cylinder: u16, head: u8, sector: u8, sectors: u8) -> u8 {
+        // TODO: Return error if attempt was made to read outside of {1, 40, 9} (H,T,S) 180k floppy
+        let sector_size = 512;
+        let lba = cylinder as u32 * 1 + head as u32 * 9 + (sector - 1) as u32;
+        return self.read_lba(address, lba * sector_size, sectors as u32 * sector_size);
+    }
+
+    fn read_lba(&mut self, address: U20, lba: u32, size: u32) -> u8 {
+        self.ram[address.0 as usize..address.0 as usize + size as usize].copy_from_slice(&self.disk[lba as usize..lba as usize + size as usize]);
+        return size as u8;
     }
 
     fn jump_to_interrupt_vector(&mut self, int: u8, insn_size: u16) {
