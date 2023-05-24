@@ -683,7 +683,7 @@ impl Emulator {
         // JMP, direct intrasegment short
         if self.ram[address.0 as usize] == 0b11101011 {
             // instruction_size += 1;
-            let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+            let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
             self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
             return Ok(())
         }
@@ -3792,21 +3792,47 @@ impl U20 {
     }
 }
 
+fn read_file(file: &str) -> std::io::Result<Vec<u8>> {
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut file = File::open(file).unwrap();
+
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).unwrap();
+
+    return Ok(data);
+}
+
+fn step(emulator: &mut Emulator) -> Result<(), Box<dyn std::error::Error>> {
+    emulator.service_interrupts();
+    emulator.update_mda_screen();
+    match emulator.execute() {
+        Ok(()) => Ok(()),
+        Err(error) => return Err(error),
+    }
+}
+
 fn main() {
-    let mut disk = vec![0; 1024 * 1024 * 50].into_boxed_slice();
+    use iced_x86::{Decoder, DecoderOptions};
 
-    disk[510] = 0x55;
-    disk[511] = 0xAA;
-
-    // hlt
-    disk[0] = 0xF4;
-
+    let disk = read_file("../Disk01.img").unwrap().into_boxed_slice();
     let mut emulator = Emulator::new(disk);
-
+    emulator.cpu.ss = 0xAF00;
+    emulator.init_rom_configuration();
+    emulator.init_ivt();
+    emulator.load_bootsector().unwrap();
     initscr();
-    let _ = emulator.run(false);
     loop {
         getch();
+        let address = U20::new(emulator.cpu.cs, emulator.cpu.ip);
+        let bytes = &emulator.ram[address.0 as usize..address.0 as usize + 20];
+        let mut decoder = Decoder::with_ip(16, bytes, 0, DecoderOptions::NONE);
+        let instruction = decoder.decode();
+        mvprintw(26, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
+        let instruction = decoder.decode();
+        mvprintw(27, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
+        step(&mut emulator).unwrap();
     }
 }
 
@@ -4795,9 +4821,9 @@ mod tests {
         disk[510] = 0x55;
         disk[511] = 0xAA;
 
-        // jmp short "+3"
+        // jmp short "+1"
         disk[0] = 0b11101011;
-        disk[1] = 0b00000011;
+        disk[1] = 0b00000001;
         // hlt
         disk[2] = 0xF4;
         // inc bp
