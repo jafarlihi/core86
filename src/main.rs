@@ -710,7 +710,7 @@ impl Emulator {
             count -= 1;
             self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX), &Value::Word(count));
             if count != 0 {
-                let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+                let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
                 self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                 return Ok(())
             }
@@ -1054,7 +1054,7 @@ impl Emulator {
                 count -= 1;
                 self.cpu.write_register(&RegisterEncoding::RegisterEncoding16(RegisterEncoding16::CX), &Value::Word(count));
                 if count != 0 && valid {
-                    let diff = i16::from(self.ram[address.0 as usize + 1] as i8);
+                    let diff = i16::from(self.ram[address.0 as usize + 1] as i8) + 2;
                     self.cpu.ip = self.cpu.ip.wrapping_add_signed(diff);
                     return Ok(())
                 }
@@ -5341,7 +5341,7 @@ mod tests {
         disk[0] = 0b01000101;
         // loop "-1"
         disk[1] = 0b11100010;
-        disk[2] = 0b11111111;
+        disk[2] = 0xFD;
         // hlt
         disk[3] = 0xF4;
 
