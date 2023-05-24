@@ -1,6 +1,22 @@
 import dearpygui.dearpygui as dpg
+from iced_x86 import *
 import socket
 import json
+
+
+def padded_hex(value):
+    padding = 6
+    return f"{value:#0{padding}x}"
+
+
+def disassemble(raw):
+    decoder = Decoder(16, raw, ip=0)
+    formatter = Formatter(FormatterSyntax.NASM)
+    result = ""
+    for insn in decoder:
+        disasm = formatter.format(insn)
+        result += disasm + "\n"
+    return result
 
 
 class Client:
@@ -33,7 +49,7 @@ class State:
     def update(self):
         self.cpu = json.loads(self.client.get_cpu().decode('ascii'))
         self.addr = self.cpu['cs'] * 16 + self.cpu['ip']
-        self.mem = self.client.get_memory(self.addr, 100)
+        self.mem = self.client.get_memory(self.addr, 1024)
 
 
 class GUI:
@@ -49,10 +65,26 @@ class GUI:
         self.state.update()
         self.update()
 
+    def run(self):
+        pass
+
     def update(self):
-        dpg.set_value(self.registers_text, "AX: " + str(self.state.cpu['ax'])
-                      + "\nBX: " + str(self.state.cpu['bx'])
-                      + "\nCX: " + str(self.state.cpu['cx']))
+        dpg.set_value(self.registers_text,
+                      "AX: " + padded_hex(self.state.cpu['ax'])
+                      + " SI: " + padded_hex(self.state.cpu['si'])
+                      + " CS: " + padded_hex(self.state.cpu['cs'])
+                      + " IP: " + padded_hex(self.state.cpu['ip'])
+                      + "\nBX: " + padded_hex(self.state.cpu['bx'])
+                      + " DI: " + padded_hex(self.state.cpu['di'])
+                      + " DS: " + padded_hex(self.state.cpu['ds'])
+                      + " FL: " + padded_hex(self.state.cpu['flags'])
+                      + "\nCX: " + padded_hex(self.state.cpu['cx'])
+                      + " SP: " + padded_hex(self.state.cpu['sp'])
+                      + " ES: " + padded_hex(self.state.cpu['es'])
+                      + "\nDX: " + padded_hex(self.state.cpu['dx'])
+                      + " BP: " + padded_hex(self.state.cpu['bp'])
+                      + " SS: " + padded_hex(self.state.cpu['ss']))
+        dpg.set_value(self.disasm_text, disassemble(self.state.mem))
 
 
 if __name__ == '__main__':
@@ -66,7 +98,7 @@ if __name__ == '__main__':
     registers_text_element = ""
     disasm_text_element = ""
 
-    with dpg.window(label="Disassembly"):
+    with dpg.window(label="Disassembly", height=400, width=525):
         disasm_text_element = dpg.add_text("")
 
     with dpg.window(label="Registers", pos=[0, 400], width=400, height=100):
@@ -74,8 +106,9 @@ if __name__ == '__main__':
 
     gui = GUI(state, registers_text_element, disasm_text_element)
 
-    with dpg.window(label="Actions", pos=[400, 400]):
-        dpg.add_button(label="Step", callback=gui.step)
+    with dpg.window(label="Actions", pos=[400, 400], width=125):
+        dpg.add_button(label="Step", callback=gui.step, width=100)
+        dpg.add_button(label="Run", callback=gui.run, width=100)
 
     dpg.show_viewport()
     dpg.start_dearpygui()
