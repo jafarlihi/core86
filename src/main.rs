@@ -4871,9 +4871,9 @@ mod tests {
         disk[510] = 0x55;
         disk[511] = 0xAA;
 
-        // jmp "+4"
+        // jmp "+2"
         disk[0] = 0b11101001;
-        disk[1] = 0b00000100;
+        disk[1] = 0b00000010;
         disk[2] = 0b00000000;
         // hlt
         disk[3] = 0xF4;
