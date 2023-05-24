@@ -352,6 +352,26 @@ impl Emulator {
             0x11 => {
                 self.cpu.ax = self.read_word(&U20::new(EQUIPMENT_SEG, EQUIPMENT_ADDR));
             },
+            0x13 => {
+                let disk = self.cpu.read_register8(&RegisterEncoding8::DL);
+                let argument = self.cpu.read_register8(&RegisterEncoding8::AH);
+                if disk != 0 {
+                    match argument {
+                        0x15 => {
+                            self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x0));
+                        },
+                        _ => self.cpu.flags |= Flags::CF.bits(),
+                    };
+                    return;
+                }
+                match argument {
+                    0x0 => {
+                        self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x0));
+                        self.cpu.flags &= !Flags::CF.bits();
+                    },
+                    _ => unimplemented!(),
+                };
+            },
             _ => unimplemented!(),
         };
     }
@@ -2843,6 +2863,7 @@ impl Emulator {
             },
             // XOR, modr/m
             0b001100 => {
+                instruction_size += 1;
                 let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
@@ -3818,7 +3839,6 @@ fn main() {
 
     let disk = read_file("../Disk01.img").unwrap().into_boxed_slice();
     let mut emulator = Emulator::new(disk);
-    emulator.cpu.ss = 0xAF00;
     emulator.init_rom_configuration();
     emulator.init_ivt();
     emulator.load_bootsector().unwrap();
