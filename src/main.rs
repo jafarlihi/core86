@@ -2813,6 +2813,7 @@ impl Emulator {
             },
             // OR, modr/m
             0b000010 => {
+                instruction_size += 1;
                 let direction: OperandDirection = self.ram[address.0 as usize].bit(1).try_into().unwrap();
                 let operand_size: OperandSize = self.ram[address.0 as usize].bit(0).try_into().unwrap();
                 let modrm = Self::parse_modrm(&operand_size, &self.ram[address.0 as usize + 1]);
