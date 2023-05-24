@@ -6,6 +6,7 @@ use num_enum::TryFromPrimitive;
 use intbits::Bits;
 use ncurses::*;
 use codepage_437::{CP437_CONTROL, FromCp437};
+use serde::Serialize;
 
 const BIOS_SEG: u16 = 0xF000;
 const ROM_CONFIGURATION_ADDR: u16 = 0xE6F5;
@@ -91,6 +92,7 @@ impl TryFrom<SegmentRegister> for RegisterEncoding16 {
     }
 }
 
+#[derive(Serialize)]
 struct CPU {
     ax: u16,
     bx: u16,
@@ -3877,23 +3879,60 @@ fn step(emulator: &mut Emulator) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
+use std::net::{TcpListener, TcpStream};
+use std::io::{Write, BufReader, BufRead};
+use std::sync::{Arc, Mutex};
+
+fn handle_client(mut stream: TcpStream, emulator: Arc<Mutex<Emulator>>) {
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut request = String::new();
+    let _ = reader.read_line(&mut request);
+    if request.to_lowercase().starts_with("cpu") {
+        stream.write(format!("{}", serde_json::to_string(&emulator.lock().unwrap().cpu).unwrap()).as_bytes()).unwrap();
+    }
+}
+
 fn main() {
     use iced_x86::{Decoder, DecoderOptions};
+    use std::thread;
 
-    let mut disk = read_file("../Disk01.img").unwrap().into_boxed_slice();
+    let disk = read_file("../Disk01.img").unwrap().into_boxed_slice();
     //disk[0x77] = 0x73; // Hack for DOS 2.0
-    let mut emulator = Emulator::new(disk);
-    emulator.init_rom_configuration();
-    emulator.init_ivt();
-    emulator.load_bootsector().unwrap();
+    let emulator = Emulator::new(disk);
+    let emulator = Arc::new(Mutex::new(emulator));
+    {
+        let emulator = Arc::clone(&emulator);
+        thread::spawn(move || {
+            let listener = TcpListener::bind("0.0.0.0:3333").unwrap();
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        let emulator = Arc::clone(&emulator);
+                        thread::spawn(move|| {
+                            handle_client(stream, emulator)
+                        });
+                    }
+                    Err(_e) => {
+                    }
+                }
+            }
+        });
+    }
+    {
+        let mut emulator_unlocked = emulator.lock().unwrap();
+        emulator_unlocked.init_rom_configuration();
+        emulator_unlocked.init_ivt();
+        emulator_unlocked.load_bootsector().unwrap();
+    }
     initscr();
     loop {
         getch();
-        let address = U20::new(emulator.cpu.cs, emulator.cpu.ip);
-        let bytes = &emulator.ram[address.0 as usize..address.0 as usize + 20];
+        let mut emulator_unlocked = emulator.lock().unwrap();
+        let address = U20::new(emulator_unlocked.cpu.cs, emulator_unlocked.cpu.ip);
+        let bytes = &emulator_unlocked.ram[address.0 as usize..address.0 as usize + 20];
         let mut decoder = Decoder::with_ip(16, bytes, 0, DecoderOptions::NONE);
         let instruction = decoder.decode();
-        mvprintw(26, 0, &format!("{} {}                        ", emulator.cpu.cs, emulator.cpu.ip));
+        mvprintw(26, 0, &format!("{} {}                        ", emulator_unlocked.cpu.cs, emulator_unlocked.cpu.ip));
         mvprintw(27, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
         let instruction = decoder.decode();
         mvprintw(28, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
@@ -3901,7 +3940,7 @@ fn main() {
         mvprintw(29, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
         let instruction = decoder.decode();
         mvprintw(30, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
-        step(&mut emulator).unwrap();
+        step(&mut emulator_unlocked).unwrap();
     }
 }
 
