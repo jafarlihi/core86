@@ -3889,6 +3889,15 @@ fn handle_client(mut stream: TcpStream, emulator: Arc<Mutex<Emulator>>) {
     let _ = reader.read_line(&mut request);
     if request.to_lowercase().starts_with("cpu") {
         stream.write(format!("{}", serde_json::to_string(&emulator.lock().unwrap().cpu).unwrap()).as_bytes()).unwrap();
+    } else if request.to_lowercase().starts_with("step") {
+        step(&mut emulator.lock().unwrap()).unwrap();
+    } else if request.to_lowercase().starts_with("mem") {
+        let command_parts = request.split(";");
+        let command: Vec<&str> = command_parts.collect();
+        let address = command[1].parse::<usize>().unwrap();
+        let size = command[2].trim().parse::<usize>().unwrap();
+        let result = &emulator.lock().unwrap().ram[address..address + size];
+        stream.write(result).unwrap();
     }
 }
 
