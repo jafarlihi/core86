@@ -380,10 +380,16 @@ impl Emulator {
                         let address = U20::new(self.cpu.read_register16(&RegisterEncoding16::ES), self.cpu.read_register16(&RegisterEncoding16::BX));
                         let cylinder = ((cx & 0xFf00) >> 8) + ((cx & 0x00C0) << 2);
                         let sector = (cx & 0x003F) as u8;
-                        let bytes_read = self.read_chs(address, cylinder, head, sector, sectors);
-                        self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x0));
+                        let (success, bytes_read) = self.read_chs(address, cylinder, head, sector, sectors);
                         self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AL), &Value::Byte(bytes_read));
-                        self.cpu.flags &= !Flags::CF.bits();
+                        if success {
+                            self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x0));
+                            self.cpu.flags &= !Flags::CF.bits();
+                        } else {
+                            // 0x1 is INVALID_PARAM, 0x4 is SECTOR_NOT_FOUND
+                            self.cpu.write_register(&RegisterEncoding::RegisterEncoding8(RegisterEncoding8::AH), &Value::Byte(0x1));
+                            self.cpu.flags |= Flags::CF.bits();
+                        }
                     },
                     _ => unimplemented!(),
                 };
@@ -397,11 +403,14 @@ impl Emulator {
         };
     }
 
-    fn read_chs(&mut self, address: U20, cylinder: u16, head: u8, sector: u8, sectors: u8) -> u8 {
+    fn read_chs(&mut self, address: U20, cylinder: u16, head: u8, sector: u8, sectors: u8) -> (bool, u8) {
         // TODO: Return error if attempt was made to read outside of {1, 40, 9} (H,T,S) 180k floppy
+        if sectors == 0 {
+            return (false, 0);
+        }
         let sector_size = 512;
         let lba = cylinder as u32 * 1 + head as u32 * 9 + (sector - 1) as u32;
-        return self.read_lba(address, lba * sector_size, sectors as u32 * sector_size);
+        return (true, self.read_lba(address, lba * sector_size, sectors as u32 * sector_size));
     }
 
     fn read_lba(&mut self, address: U20, lba: u32, size: u32) -> u8 {
@@ -3871,7 +3880,8 @@ fn step(emulator: &mut Emulator) -> Result<(), Box<dyn std::error::Error>> {
 fn main() {
     use iced_x86::{Decoder, DecoderOptions};
 
-    let disk = read_file("../Disk01.img").unwrap().into_boxed_slice();
+    let mut disk = read_file("../Disk01.img").unwrap().into_boxed_slice();
+    //disk[0x77] = 0x73; // Hack for DOS 2.0
     let mut emulator = Emulator::new(disk);
     emulator.init_rom_configuration();
     emulator.init_ivt();
@@ -3887,6 +3897,10 @@ fn main() {
         mvprintw(27, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
         let instruction = decoder.decode();
         mvprintw(28, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
+        let instruction = decoder.decode();
+        mvprintw(29, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
+        let instruction = decoder.decode();
+        mvprintw(30, 0, &[instruction.to_string(), "                        ".to_string()].join(""));
         step(&mut emulator).unwrap();
     }
 }
