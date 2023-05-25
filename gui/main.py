@@ -1,5 +1,5 @@
 import dearpygui.dearpygui as dpg
-from iced_x86 import *
+import iced_x86
 import socket
 import json
 
@@ -10,8 +10,8 @@ def padded_hex(value):
 
 
 def disassemble(raw):
-    decoder = Decoder(16, raw, ip=0)
-    formatter = Formatter(FormatterSyntax.NASM)
+    decoder = iced_x86.Decoder(16, raw, ip=0)
+    formatter = iced_x86.Formatter(iced_x86.FormatterSyntax.NASM)
     result = ""
     for insn in decoder:
         disasm = formatter.format(insn)
@@ -49,17 +49,20 @@ class State:
     def update(self):
         self.cpu = json.loads(self.client.get_cpu().decode('ascii'))
         self.addr = self.cpu['cs'] * 16 + self.cpu['ip']
-        self.mem = self.client.get_memory(self.addr, 1024)
+        self.ip_mem = self.client.get_memory(self.addr, 1024)
+        self.mem = self.client.get_memory(0, 1024 * 1024)
+        self.stack_addr = self.cpu['ss'] * 16 + self.cpu['sp']
 
 
 class GUI:
     client = Client()
 
-    def __init__(self, state, disasm_text, registers_text, flags_text):
+    def __init__(self, state, disasm_text, registers_text, flags_text, stack_text):
         self.state = state
         self.disasm_text = disasm_text
         self.registers_text = registers_text
         self.flags_text = flags_text
+        self.stack_text = stack_text_element
 
     def step(self):
         self.client.step()
@@ -95,7 +98,16 @@ class GUI:
                       + " IF: " + str(self.state.cpu['flags'] >> 9 & 1)
                       + " DF: " + str(self.state.cpu['flags'] >> 10 & 1)
                       + "\nOF: " + str(self.state.cpu['flags'] >> 11 & 1))
-        dpg.set_value(self.disasm_text, disassemble(self.state.mem))
+        dpg.set_value(self.disasm_text, disassemble(self.state.ip_mem))
+        stack_text = ""
+        count = 0
+        for b in self.state.mem[self.state.stack_addr - 16:self.state.stack_addr + 16]:
+            if count == 16:
+                stack_text += 'SP --> 0x' + format(b, '02x') + '\n'
+            else:
+                stack_text += '0x' + format(b, '02x') + '\n'
+            count += 1
+        dpg.set_value(self.stack_text, stack_text)
 
 
 if __name__ == '__main__':
@@ -109,8 +121,9 @@ if __name__ == '__main__':
     disasm_text_element = ""
     registers_text_element = ""
     flags_text_element = ""
+    stack_text_element = ""
 
-    with dpg.window(label="Disassembly", height=400, width=525):
+    with dpg.window(label="Disassembly", height=400, width=250):
         disasm_text_element = dpg.add_text("")
 
     with dpg.window(label="Registers", pos=[0, 400], width=400, height=100):
@@ -119,7 +132,10 @@ if __name__ == '__main__':
     with dpg.window(label="Flags", pos=[0, 500], width=400, height=100):
         flags_text_element = dpg.add_input_text(multiline=True, enabled=False, width=350, height=65)
 
-    gui = GUI(state, disasm_text_element, registers_text_element, flags_text_element)
+    with dpg.window(label="Stack", pos=[250, 0], width=250, height=400):
+        stack_text_element = dpg.add_input_text(multiline=True, enabled=False, width=220, height=365)
+
+    gui = GUI(state, disasm_text_element, registers_text_element, flags_text_element, stack_text_element)
 
     with dpg.window(label="Actions", pos=[400, 400], width=125):
         dpg.add_button(label="Step", callback=gui.step, width=100)

@@ -1,3 +1,5 @@
+#![allow(arithmetic_overflow)]
+
 use std::convert::TryFrom;
 use std::ops::Neg;
 use std::collections::VecDeque;
