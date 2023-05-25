@@ -55,10 +55,11 @@ class State:
 class GUI:
     client = Client()
 
-    def __init__(self, state, registers_text, disasm_text):
+    def __init__(self, state, disasm_text, registers_text, flags_text):
         self.state = state
-        self.registers_text = registers_text
         self.disasm_text = disasm_text
+        self.registers_text = registers_text
+        self.flags_text = flags_text
 
     def step(self):
         self.client.step()
@@ -84,6 +85,16 @@ class GUI:
                       + "\nDX: " + padded_hex(self.state.cpu['dx'])
                       + " BP: " + padded_hex(self.state.cpu['bp'])
                       + " SS: " + padded_hex(self.state.cpu['ss']))
+        dpg.set_value(self.flags_text,
+                      "CF: " + str(self.state.cpu['flags'] & 1)
+                      + " PF: " + str(self.state.cpu['flags'] >> 2 & 1)
+                      + " AF: " + str(self.state.cpu['flags'] >> 4 & 1)
+                      + " ZF: " + str(self.state.cpu['flags'] >> 6 & 1)
+                      + "\nSF: " + str(self.state.cpu['flags'] >> 7 & 1)
+                      + " TF: " + str(self.state.cpu['flags'] >> 8 & 1)
+                      + " IF: " + str(self.state.cpu['flags'] >> 9 & 1)
+                      + " DF: " + str(self.state.cpu['flags'] >> 10 & 1)
+                      + "\nOF: " + str(self.state.cpu['flags'] >> 11 & 1))
         dpg.set_value(self.disasm_text, disassemble(self.state.mem))
 
 
@@ -95,8 +106,9 @@ if __name__ == '__main__':
     state = State()
     state.update()
 
-    registers_text_element = ""
     disasm_text_element = ""
+    registers_text_element = ""
+    flags_text_element = ""
 
     with dpg.window(label="Disassembly", height=400, width=525):
         disasm_text_element = dpg.add_text("")
@@ -104,7 +116,10 @@ if __name__ == '__main__':
     with dpg.window(label="Registers", pos=[0, 400], width=400, height=100):
         registers_text_element = dpg.add_input_text(multiline=True, enabled=False, width=350, height=65)
 
-    gui = GUI(state, registers_text_element, disasm_text_element)
+    with dpg.window(label="Flags", pos=[0, 500], width=400, height=100):
+        flags_text_element = dpg.add_input_text(multiline=True, enabled=False, width=350, height=65)
+
+    gui = GUI(state, disasm_text_element, registers_text_element, flags_text_element)
 
     with dpg.window(label="Actions", pos=[400, 400], width=125):
         dpg.add_button(label="Step", callback=gui.step, width=100)
