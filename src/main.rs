@@ -53,7 +53,8 @@ fn main() {
     use iced_x86::{Decoder, DecoderOptions};
     use std::thread;
 
-    let disk = read_file("../Disk01.img").unwrap().into_boxed_slice();
+    let args: Vec<String> = std::env::args().collect();
+    let disk = read_file(&args[1]).unwrap().into_boxed_slice();
     //disk[0x77] = 0x73; // Hack for DOS 2.0
     let emulator = Emulator::new(disk);
     let emulator = Arc::new(Mutex::new(emulator));
