@@ -1,5 +1,7 @@
 ![demo](https://github.com/jafarlihi/core86/blob/eca2be73c33b42aee1d3085ee080016fbd4f5f9d/screenshot.png?raw=true)
 
+(The screenshot is not representative of the actual current state of the project. The MDA window does not exist yet but other panels displayed mostly work. Some MDA work has been done but it's not finished yet.)
+
 ## Overview
 
 core86 is a *WORK-IN-PROGRESS* 8086 IBM PC emulator that aims to run MS/DOS as the initial goal.
